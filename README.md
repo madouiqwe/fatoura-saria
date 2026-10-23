@@ -2,6 +2,16 @@
 
 تطبيق أندرويد عربي (RTL) لإدارة الفواتير والمبيعات، مبني بـ Kotlin و Jetpack Compose.
 
+[![Build APK](https://github.com/madouiqwe/fatoura-saria/actions/workflows/android.yml/badge.svg)](https://github.com/madouiqwe/fatoura-saria/actions/workflows/android.yml)
+
+## التنزيل والتثبيت
+
+- **أحدث إصدار (APK):** [github.com/madouiqwe/fatoura-saria/releases/latest](https://github.com/madouiqwe/fatoura-saria/releases/latest)
+- **رابط مباشر:** [fatoura-saria-v2.0.apk](https://github.com/madouiqwe/fatoura-saria/releases/download/v2.0/fatoura-saria-v2.0.apk)
+
+للتثبيت: نزّل ملف APK على الهاتف، ثم اسمح بتثبيت التطبيقات من هذا المصدر عند الطلب، وافتح الملف.
+التطبيق يعمل دون إنترنت ولا يحتاج إلى حساب، وبياناته محفوظة محلياً على الجهاز.
+
 ## المميزات
 
 - **حزم بسعات مختلفة لكل منتج**: كل سلعة لها حقل «عدد القطع في الحزمة» مستقل (10، 12، 24 ...).

@@ -9,6 +9,7 @@
 .cxx/
 build-log.txt
 app/build/
+/dist/
 *.hprof
 
 .kotlin/
