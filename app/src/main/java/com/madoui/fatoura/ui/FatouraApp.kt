@@ -51,6 +51,7 @@ fun FatouraApp(viewModel: FatouraViewModel) {
         )
 
         route == "quick" -> QuickModeScreen(
+            products = data.products,
             nextInvoiceNumber = data.nextInvoiceNumber.toString(),
             onBack = { pop() },
             onSaveInvoice = viewModel::saveInvoice,

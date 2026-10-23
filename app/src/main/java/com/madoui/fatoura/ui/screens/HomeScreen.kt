@@ -97,7 +97,7 @@ fun HomeScreen(
                 iconTint = Amber,
                 iconBackground = AmberSoft,
                 title = "الوضع السريع",
-                subtitle = "حساب سريع، آلة حاسبة، وإيصال فوري",
+                subtitle = "اختر السلع، احسب الإجمالي، وأصدر فاتورة فوراً",
                 onClick = onOpenQuick
             )
             NavCard(
