@@ -195,7 +195,7 @@ private fun InvoiceCard(invoice: Invoice, onClick: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "فاتورة #${invoice.number}",
+                        "فاتورة رقم ${invoice.number}",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary

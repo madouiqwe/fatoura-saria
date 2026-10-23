@@ -101,7 +101,7 @@ fun InvoiceDetailScreen(
         containerColor = Background,
         topBar = {
             FatouraTopBar(
-                title = "فاتورة #${invoice.number}",
+                title = "فاتورة رقم ${invoice.number}",
                 onBack = onBack,
                 actions = {
                     IconButton(onClick = { onEdit(invoice.id) }) {
@@ -189,7 +189,7 @@ fun InvoiceDetailScreen(
     if (showDelete) {
         ConfirmDialog(
             title = "حذف الفاتورة",
-            message = "هل تريد حذف الفاتورة #${invoice.number} نهائياً؟",
+            message = "هل تريد حذف الفاتورة رقم ${invoice.number} نهائياً؟",
             onConfirm = {
                 showDelete = false
                 onDelete(invoice.id)

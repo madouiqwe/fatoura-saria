@@ -84,11 +84,29 @@ object InvoicePdf {
         val right = PAGE_WIDTH - MARGIN
 
         val namePaint = textPaint(15f, COLOR_TEAL_DARK, bold = true)
-        canvas.drawText(company.name.ifBlank { "اسم شركتك" }, right, 52f, namePaint)
+        namePaint.textAlign = Paint.Align.RIGHT
+        val nameMaxWidth = PAGE_WIDTH / 2f - MARGIN
+        canvas.drawText(
+            ellipsize(company.name.ifBlank { "اسم شركتك" }, namePaint, nameMaxWidth),
+            right,
+            52f,
+            namePaint
+        )
 
         val small = textPaint(9f, COLOR_MUTED)
-        canvas.drawText("هاتف : ${company.phone}", right, 70f, small)
-        canvas.drawText("العنوان : ${company.address}", right, 84f, small)
+        small.textAlign = Paint.Align.RIGHT
+        canvas.drawText(
+            ellipsize("هاتف : ${company.phone}", small, nameMaxWidth),
+            right,
+            70f,
+            small
+        )
+        canvas.drawText(
+            ellipsize("العنوان : ${company.address}", small, nameMaxWidth),
+            right,
+            84f,
+            small
+        )
 
         val titlePaint = textPaint(19f, COLOR_TEAL, bold = true)
         canvas.drawText("فاتورة مبيعات", MARGIN, 52f, titlePaint)
@@ -112,7 +130,7 @@ object InvoicePdf {
         val right = PAGE_WIDTH - MARGIN
         val left = MARGIN
         val boxTop = startY
-        val boxBottom = startY + 58f
+        val boxBottom = startY + 72f
 
         val boxPaint = Paint().apply {
             color = 0xFFF5F7F7.toInt()
@@ -120,13 +138,13 @@ object InvoicePdf {
         }
         canvas.drawRoundRect(RectF(left, boxTop, right, boxBottom), 8f, 8f, boxPaint)
 
-        // شارة الحالة في أقصى اليمين
+        // شارة الحالة في أعلى اليسار
         val statusText = invoice.status.label
         val statusPaint = textPaint(8.5f, Color.WHITE, bold = true)
         val badgeWidth = statusPaint.measureText(statusText) + 22f
-        val badgeRight = right - 10f
-        val badgeLeft = badgeRight - badgeWidth
-        val badgeTop = boxTop + 10f
+        val badgeLeft = left + 10f
+        val badgeRight = badgeLeft + badgeWidth
+        val badgeTop = boxTop + 9f
         val badgeBottom = badgeTop + 20f
         val badgeColor = when (invoice.status) {
             InvoiceStatus.PAID -> COLOR_GREEN
@@ -139,36 +157,47 @@ object InvoicePdf {
         statusPaint.textAlign = Paint.Align.CENTER
         canvas.drawText(statusText, (badgeLeft + badgeRight) / 2f, badgeBottom - 6f, statusPaint)
 
-        val labelPaint = textPaint(8f, COLOR_MUTED)
-        val valuePaint = textPaint(9.5f, COLOR_TEXT, bold = true)
+        val valuePaint = textPaint(9.5f, COLOR_TEXT, bold = true).apply {
+            textAlign = Paint.Align.RIGHT
+        }
+        val detailPaint = textPaint(8f, COLOR_MUTED).apply {
+            textAlign = Paint.Align.RIGHT
+        }
+        val infoPaint = textPaint(8f, COLOR_MUTED).apply {
+            textAlign = Paint.Align.LEFT
+        }
+        val textWidth = right - left - 20f
 
-        canvas.drawText("العميل", right, boxTop + 40f, labelPaint.apply { textAlign = Paint.Align.RIGHT })
+        // بيانات العميل في الجهة اليمنى
         canvas.drawText(
-            invoice.customerName.ifBlank { "عميل نقدي" },
-            right - 38f,
-            boxTop + 40f,
-            valuePaint.apply { textAlign = Paint.Align.RIGHT }
+            ellipsize(
+                "العميل : ${invoice.customerName.ifBlank { "عميل نقدي" }}",
+                valuePaint,
+                textWidth
+            ),
+            right,
+            boxTop + 25f,
+            valuePaint
         )
-
         canvas.drawText(
             "طريقة الدفع : ${invoice.paymentMethod.label}",
             right,
-            boxTop + 52f,
-            textPaint(8f, COLOR_MUTED).apply { textAlign = Paint.Align.RIGHT }
+            boxTop + 45f,
+            detailPaint
         )
 
-        // معلومات إضافية في الجهة اليسرى
+        // معلومات إضافية أسفل الشارة
         canvas.drawText(
             "عدد الأصناف : ${invoice.items.size}",
             left + 10f,
-            boxTop + 26f,
-            textPaint(8f, COLOR_MUTED).apply { textAlign = Paint.Align.LEFT }
+            boxTop + 52f,
+            infoPaint
         )
         canvas.drawText(
             "إجمالي القطع : ${Fmt.qty(invoice.totalPieces)}",
             left + 10f,
-            boxTop + 42f,
-            textPaint(8f, COLOR_MUTED).apply { textAlign = Paint.Align.LEFT }
+            boxTop + 64f,
+            infoPaint
         )
 
         return boxBottom + 18f

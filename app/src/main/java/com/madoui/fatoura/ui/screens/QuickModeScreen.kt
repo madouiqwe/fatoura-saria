@@ -150,7 +150,7 @@ fun QuickModeScreen(
                     Modifier
                         .fillMaxWidth()
                         .padding(20.dp),
-                    horizontalAlignment = Alignment.End
+                    horizontalAlignment = Alignment.Start
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
