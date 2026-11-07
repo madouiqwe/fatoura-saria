@@ -146,7 +146,7 @@ object InvoicePrinter {
         }
     }
 
-    /** Build compact Arabic RTL receipt; Android shapes Arabic then ESC/POS receives monochrome raster bands. */
+    /** Build compact Arabic RTL receipt; package rows show piece price multiplied by pack count. */
     fun buildThermalText(invoice: Invoice, company: CompanySettings): ByteArray {
         val lines = buildList {
             add(company.name.ifBlank { "اسم الشركة" })
@@ -157,12 +157,18 @@ object InvoicePrinter {
             add("العميل: ${invoice.customerName.ifBlank { "عميل نقدي" }}")
             add("الدفع: ${invoice.paymentMethod.label}")
             add("────────────────────────────")
+            add("الصنف | الكمية | سعر الحبة | الإجمالي")
+            add("────────────────────────────")
             invoice.items.forEach { item ->
-                add(item.name.ifBlank { "منتج" })
-                add("الكمية: ${Fmt.qty(item.quantity)} ${item.unit.label}")
-                add("سعر الوحدة: ${Fmt.amount(item.unitPrice)}    الإجمالي: ${Fmt.amount(item.lineTotal)}")
-                if (item.unit == SaleUnit.PACKAGE) add("عدد القطع: ${Fmt.qty(item.totalPieces)}")
-                add("")
+                val name = item.name.ifBlank { "منتج" }
+                if (item.unit == SaleUnit.PACKAGE) {
+                    val capacity = item.unitsPerPackage.coerceAtLeast(1)
+                    val piecePrice = if (capacity > 0) item.unitPrice / capacity.toDouble() else 0.0
+                    add("$name | ${Fmt.qty(item.quantity)} حزمة | ${Fmt.amount(piecePrice)} | ${Fmt.amount(item.lineTotal)}")
+                    add("= ${Fmt.qty(item.quantity)} × ${capacity} = ${Fmt.qty(item.totalPieces)} حبة")
+                } else {
+                    add("$name | ${Fmt.qty(item.quantity)} حبة | ${Fmt.amount(item.unitPrice)} | ${Fmt.amount(item.lineTotal)}")
+                }
             }
             add("────────────────────────────")
             add("المجموع: ${Fmt.money(invoice.subtotal)}")
@@ -201,7 +207,6 @@ object InvoicePrinter {
                 canvas.translate(16f, (12 - top).toFloat())
                 layout.draw(canvas)
                 canvas.restore()
-                // GS v 0 raster bit image. Bounded bands avoid oversized image payloads.
                 output.write(byteArrayOf(0x1D, 0x76, 0x30, 0x00))
                 output.write(widthBytes and 0xFF)
                 output.write((widthBytes shr 8) and 0xFF)
