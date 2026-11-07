@@ -6,6 +6,10 @@ import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
@@ -15,6 +19,10 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.PrintManager
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextDirectionHeuristics
+import android.text.TextPaint
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.madoui.fatoura.data.CompanySettings
@@ -29,6 +37,8 @@ import java.util.UUID
 object InvoicePrinter {
 
     private const val THERMAL_PRINTER_UUID = "00001101-0000-1000-8000-00805F9B34FB"
+    // عرض 58mm الشائع للطابعات الحرارية: 384 نقطة عند 203dpi.
+    private const val THERMAL_WIDTH_DOTS = 384
 
     fun print(context: Context, file: File, jobName: String) {
         val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
@@ -59,9 +69,7 @@ object InvoicePrinter {
             ) {
                 try {
                     FileInputStream(file).use { input ->
-                        FileOutputStream(destination.fileDescriptor).use { output ->
-                            input.copyTo(output)
-                        }
+                        FileOutputStream(destination.fileDescriptor).use { output -> input.copyTo(output) }
                     }
                     callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
                 } catch (exception: Exception) {
@@ -75,16 +83,11 @@ object InvoicePrinter {
             .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
             .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
             .build()
-
         printManager.print(jobName, adapter, attributes)
     }
 
     fun share(context: Context, file: File) {
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            file
-        )
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "application/pdf"
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -95,17 +98,11 @@ object InvoicePrinter {
     }
 
     fun printDirectThermal(context: Context, invoice: Invoice, company: CompanySettings): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val hasConnect = context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-            val hasScan = context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
-            if (!hasConnect || !hasScan) {
-                Toast.makeText(
-                    context,
-                    "يجب منح أذونات البلوتوث (BLUETOOTH_CONNECT / BLUETOOTH_SCAN) أولاً.",
-                    Toast.LENGTH_LONG
-                ).show()
-                return false
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(context, "يرجى السماح للتطبيق بالاتصال بأجهزة البلوتوث من إعدادات الأذونات.", Toast.LENGTH_LONG).show()
+            return false
         }
 
         val adapter = BluetoothAdapter.getDefaultAdapter()
@@ -114,74 +111,125 @@ object InvoicePrinter {
             return false
         }
 
-        val pairedDevices: List<BluetoothDevice> = adapter.bondedDevices.toList()
-        val device = pairedDevices
-            .firstOrNull { it.name?.contains("printer", ignoreCase = true) == true }
+        val pairedDevices: List<BluetoothDevice> = try {
+            adapter.bondedDevices.toList()
+        } catch (_: SecurityException) {
+            Toast.makeText(context, "لا توجد صلاحية لل��صول إلى أجهزة البلوتوث المقترنة.", Toast.LENGTH_LONG).show()
+            return false
+        }
+        val device = pairedDevices.firstOrNull { it.name?.contains("printer", ignoreCase = true) == true }
             ?: pairedDevices.firstOrNull()
-
         if (device == null) {
             Toast.makeText(context, "لا توجد طابعات مقترنة. قم بإقران الطابعة أولاً.", Toast.LENGTH_LONG).show()
             return false
         }
 
         return try {
-            val socket: BluetoothSocket = device.createRfcommSocketToServiceRecord(
-                UUID.fromString(THERMAL_PRINTER_UUID)
-            )
-            socket.connect()
-            val payload = buildThermalText(invoice, company)
-            socket.outputStream.use { out ->
-                out.write(payload)
-                out.flush()
+            val socket: BluetoothSocket = device.createRfcommSocketToServiceRecord(UUID.fromString(THERMAL_PRINTER_UUID))
+            socket.use { connection ->
+                connection.connect()
+                connection.outputStream.use { out ->
+                    out.write(buildThermalText(invoice, company))
+                    out.flush()
+                }
             }
-            socket.close()
-            Toast.makeText(context, "تم إرسال الفاتورة مباشرة إلى الطابعة.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "تم إرسال الفاتورة إلى الطابعة.", Toast.LENGTH_SHORT).show()
             true
         } catch (e: Exception) {
-            Toast.makeText(
-                context,
-                "فشل الاتصال بالطابعة: ${e.message}",
-                Toast.LENGTH_LONG
-            ).show()
+            Toast.makeText(context, "فشل الاتصال بالطابعة: ${e.message}", Toast.LENGTH_LONG).show()
             false
         }
     }
 
+    /**
+     * يرسم الفاتورة بمحرك Android النصي أولاً ثم يرسلها كصورة ESC/POS.
+     * بهذه الطريقة يتم تشكيل العربية واتجاه RTL على الهاتف، ولا يعتمد وضوحها
+     * على الخطوط/ترميز العربية المحدود داخل الطابعة.
+     */
     fun buildThermalText(invoice: Invoice, company: CompanySettings): ByteArray {
-        val lines = mutableListOf<String>()
-        val separator = "----------------------------------------"
-
-        lines += "\u001B@"
-        lines += company.name.ifBlank { "اسم الشركة" }
-        lines += "هاتف: ${company.phone.ifBlank { "-" }}"
-        lines += "العنوان: ${company.address.ifBlank { "-" }}"
-        lines += separator
-        lines += "فاتورة رقم: ${invoice.number}"
-        lines += "التاريخ: ${Fmt.date(invoice.dateMillis)}"
-        lines += "العميل: ${invoice.customerName.ifBlank { "عميل نقدي" }}"
-        lines += "طريقة الدفع: ${invoice.paymentMethod.label}"
-        lines += separator
-
-        invoice.items.forEach { item ->
-            val itemName = item.name.ifBlank { "منتج" }
-            val qtyLabel = "${Fmt.qty(item.quantity)} ${item.unit.label}"
-            val price = Fmt.amount(item.unitPrice)
-            val total = Fmt.amount(item.lineTotal)
-            lines += itemName
-            lines += "$qtyLabel | $price | $total"
+        val lines = buildList {
+            add(company.name.ifBlank { "اسم الشركة" })
+            add("هاتف: ${company.phone.ifBlank { "-" }}")
+            add("العنوان: ${company.address.ifBlank { "-" }}")
+            add("--------------------------------")
+            add("فاتورة رقم: ${invoice.number}")
+            add("التاريخ: ${Fmt.date(invoice.dateMillis)}")
+            add("العميل: ${invoice.customerName.ifBlank { "عميل نقدي" }}")
+            add("طريقة الدفع: ${invoice.paymentMethod.label}")
+            add("--------------------------------")
+            invoice.items.forEach { item ->
+                add(item.name.ifBlank { "منتج" })
+                add("${Fmt.qty(item.quantity)} ${item.unit.label} | ${Fmt.amount(item.unitPrice)} | ${Fmt.amount(item.lineTotal)}")
+            }
+            add("--------------------------------")
+            add("المجموع الفرعي: ${Fmt.money(invoice.subtotal)}")
+            if (invoice.discount > 0.0) add("الخصم: -${Fmt.money(invoice.discount)}")
+            add("الإجمالي النهائي: ${Fmt.money(invoice.total)}")
+            if (invoice.notes.isNotBlank()) add("ملاحظات: ${invoice.notes}")
+            add("--------------------------------")
+            add(company.footerNote.ifBlank { "شكراً لتعاملكم معنا" })
         }
 
-        lines += separator
-        lines += "المجموع الفرعي: ${Fmt.money(invoice.subtotal)}"
-        if (invoice.discount > 0.0) {
-            lines += "الخصم: -${Fmt.money(invoice.discount)}"
+        val receiptText = lines.joinToString("\n")
+        val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            textSize = 25f
+            typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
         }
-        lines += "الإجمالي النهائي: ${Fmt.money(invoice.total)}"
-        lines += "ملاحظات: ${invoice.notes.ifBlank { "-" }}"
-        lines += separator
-        lines += company.footerNote.ifBlank { "شكراً لتعاملكم معنا" }
-        lines += ""
+        val layout = StaticLayout.Builder.obtain(receiptText, 0, receiptText.length, textPaint, THERMAL_WIDTH_DOTS - 24)
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_RTL)
+            .setIncludePad(true)
+            .setLineSpacing(3f, 1f)
+            .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+            .build()
 
-        return lines.joinToString("\n").toByteArray(Charsets.UTF_8)
+        val bitmapWidth = THERMAL_WIDTH_DOTS
+        val bitmapHeight = layout.height + 24
+        val bitmap = Bitmap.createBitmap(bitmapWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+        canvas.save()
+        canvas.translate(12f, 12f)
+        layout.draw(canvas)
+        canvas.restore()
+
+        val widthBytes = (bitmapWidth + 7) / 8
+        val payload = ByteArrayOutputStreamCompat()
+        payload.write(byteArrayOf(0x1B, 0x40)) // ESC @: reset printer
+        // GS v 0: send a monochrome raster image.
+        payload.write(byteArrayOf(0x1D, 0x76, 0x30, 0x00))
+        payload.write(widthBytes and 0xFF)
+        payload.write((widthBytes shr 8) and 0xFF)
+        payload.write(bitmapHeight and 0xFF)
+        payload.write((bitmapHeight shr 8) and 0xFF)
+
+        val pixels = IntArray(bitmapWidth)
+        for (y in 0 until bitmapHeight) {
+            bitmap.getPixels(pixels, 0, bitmapWidth, 0, y, bitmapWidth, 1)
+            for (byteIndex in 0 until widthBytes) {
+                var value = 0
+                for (bit in 0..7) {
+                    val x = byteIndex * 8 + bit
+                    if (x < bitmapWidth) {
+                        val pixel = pixels[x]
+                        val luminance = (Color.red(pixel) * 299 + Color.green(pixel) * 587 + Color.blue(pixel) * 114) / 1000
+                        if (luminance < 160) value = value or (0x80 shr bit)
+                    }
+                }
+                payload.write(value)
+            }
+        }
+        payload.write(byteArrayOf(0x0A, 0x0A, 0x0A)) // feed paper after receipt
+        bitmap.recycle()
+        return payload.toByteArray()
+    }
+
+    /** Minimal byte accumulator to keep the ESC/POS image encoding dependency-free. */
+    private class ByteArrayOutputStreamCompat {
+        private val buffer = java.io.ByteArrayOutputStream()
+        fun write(value: Int) = buffer.write(value)
+        fun write(bytes: ByteArray) = buffer.write(bytes)
+        fun toByteArray(): ByteArray = buffer.toByteArray()
     }
 }
