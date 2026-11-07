@@ -93,10 +93,7 @@ fun InvoiceDetailScreen(
             containerColor = Background,
             topBar = { FatouraTopBar(title = "تفاصيل الفاتورة", onBack = onBack) }
         ) { padding ->
-            Box(
-                Modifier.padding(padding).fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("الفاتورة غير موجودة", color = TextMuted)
             }
         }
@@ -115,7 +112,7 @@ fun InvoiceDetailScreen(
     }
 
     val connectPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
+        ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) printDirect()
         else Toast.makeText(context, "يجب السماح بالاتصال بالبلوتوث للطباعة.", Toast.LENGTH_LONG).show()
@@ -149,21 +146,14 @@ fun InvoiceDetailScreen(
         }
     ) { padding ->
         Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+            modifier = Modifier.padding(padding).fillMaxSize()
+                .verticalScroll(rememberScrollState()).padding(16.dp)
         ) {
             InvoicePaper(invoice = invoice, settings = settings)
             Spacer(Modifier.height(14.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { requestPrint() },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
+                Button(onClick = { requestPrint() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) {
                     Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("طباعة XP-P801", fontWeight = FontWeight.Bold)
@@ -217,10 +207,7 @@ fun InvoiceDetailScreen(
                 Spacer(Modifier.height(10.dp))
             }
             if (invoice.status == InvoiceStatus.PAID) {
-                TextButton(
-                    onClick = { onChangeStatus(InvoiceStatus.UNPAID) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                TextButton(onClick = { onChangeStatus(InvoiceStatus.UNPAID) }, modifier = Modifier.fillMaxWidth()) {
                     Text("تحديد كغير مدفوعة", color = TextMuted, fontSize = 12.sp)
                 }
             }
@@ -289,7 +276,7 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                 TableCell("الصنف", 2.2f, true, TextAlign.Start)
                 TableCell("الكمية", 1.35f, true)
                 TableCell("السعر", 1.25f, true)
-                TableCell("��لإجمالي", 1.45f, true)
+                TableCell("الإجمالي", 1.45f, true)
             }
 
             invoice.items.forEachIndexed { index, item ->
