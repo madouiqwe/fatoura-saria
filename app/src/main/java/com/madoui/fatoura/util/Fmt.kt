@@ -2,18 +2,16 @@ package com.madoui.fatoura.util
 
 import java.text.DecimalFormat
 import java.text.DecimalFormatSymbols
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 /** تنسيق موحّد للأرقام والتواريخ في كل التطبيق. */
 object Fmt {
 
-    // لا تعرض فاصل الآلاف، ولا تعرض .00؛ تبقى الكسور المهمة فقط عند الحاجة.
+    // لا تعرض فواصل الآلاف، ولا تعرض .00 عند عدم الحاجة.
     private val moneyFormat = DecimalFormat("0.##", DecimalFormatSymbols(Locale.US))
     private val qtyFormat = DecimalFormat("0.###", DecimalFormatSymbols(Locale.US))
-    private val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.US)
-    private val dateTimeFormat = SimpleDateFormat("yyyy/MM/dd  HH:mm", Locale.US)
+    private val dateFormat = java.text.SimpleDateFormat("yyyy/MM/dd", Locale.US)
+    private val dateTimeFormat = java.text.SimpleDateFormat("yyyy/MM/dd  HH:mm", Locale.US)
 
     @Synchronized
     fun money(value: Double): String = "${moneyFormat.format(value)} د.ج"
@@ -25,18 +23,21 @@ object Fmt {
     fun qty(value: Double): String = qtyFormat.format(value)
 
     @Synchronized
-    fun date(millis: Long): String = dateFormat.format(Date(millis))
+    fun date(millis: Long): String = dateFormat.format(java.util.Date(millis))
 
     @Synchronized
-    fun dateTime(millis: Long): String = dateTimeFormat.format(Date(millis))
+    fun dateTime(millis: Long): String = dateTimeFormat.format(java.util.Date(millis))
 
-    /** يحوّل نص الرقم إلى قيمة، مع تجاهل فواصل الآلاف والنقاط والمسافات. */
+    /** يحوّل نص المستخدم إلى رقم، مع حذف فواصل الآلاف والفواصل العشرية غير الصحيحة. */
     fun parseNumber(text: String): Double? {
-        val normalized = text
-            .replace("،", "")
-            .replace(",", "")
+        val clean = text
+            .replace('،', '.')
+            .replace(',', '.')
             .replace(" ", "")
             .trim()
-        return normalized.toDoubleOrNull()
+            .removeSuffix(".")
+
+        if (clean.isEmpty()) return null
+        return clean.toDoubleOrNull()
     }
 }
