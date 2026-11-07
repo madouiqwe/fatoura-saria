@@ -30,11 +30,11 @@ object Fmt {
     @Synchronized
     fun dateTime(millis: Long): String = dateTimeFormat.format(Date(millis))
 
-    /** يحوّل نص المستخدم (قد يحتوي فاصلة عربية) إلى رقم. */
+    /** يحوّل نص الرقم إلى قيمة، مع تجاهل فواصل الآلاف والنقاط والمسافات. */
     fun parseNumber(text: String): Double? {
         val normalized = text
-            .replace('،', '.')
-            .replace(',', '.')
+            .replace("،", "")
+            .replace(",", "")
             .replace(" ", "")
             .trim()
         return normalized.toDoubleOrNull()
