@@ -9,8 +9,9 @@ import java.util.Locale
 /** تنسيق موحّد للأرقام والتواريخ في كل التطبيق. */
 object Fmt {
 
-    private val moneyFormat = DecimalFormat("#,##0.00", DecimalFormatSymbols(Locale.US))
-    private val qtyFormat = DecimalFormat("#,##0.###", DecimalFormatSymbols(Locale.US))
+    // لا تعرض فاصل الآلاف، ولا تعرض .00؛ تبقى الكسور المهمة فقط عند الحاجة.
+    private val moneyFormat = DecimalFormat("0.##", DecimalFormatSymbols(Locale.US))
+    private val qtyFormat = DecimalFormat("0.###", DecimalFormatSymbols(Locale.US))
     private val dateFormat = SimpleDateFormat("yyyy/MM/dd", Locale.US)
     private val dateTimeFormat = SimpleDateFormat("yyyy/MM/dd  HH:mm", Locale.US)
 
