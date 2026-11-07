@@ -37,12 +37,11 @@ import java.util.UUID
 object InvoicePrinter {
 
     private const val THERMAL_PRINTER_UUID = "00001101-0000-1000-8000-00805F9B34FB"
-    // عرض 58mm الشائع للطابعات الحرارية: 384 نقطة عند 203dpi.
-    private const val THERMAL_WIDTH_DOTS = 384
+    // XP-P801 prints on 80mm paper, with an effective printable width of about 72mm (576 dots at 203dpi).
+    private const val THERMAL_WIDTH_DOTS = 576
 
     fun print(context: Context, file: File, jobName: String) {
         val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
-
         val adapter = object : PrintDocumentAdapter() {
             override fun onLayout(
                 oldAttributes: PrintAttributes?,
@@ -77,7 +76,6 @@ object InvoicePrinter {
                 }
             }
         }
-
         val attributes = PrintAttributes.Builder()
             .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
             .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
@@ -114,13 +112,18 @@ object InvoicePrinter {
         val pairedDevices: List<BluetoothDevice> = try {
             adapter.bondedDevices.toList()
         } catch (_: SecurityException) {
-            Toast.makeText(context, "لا توجد صلاحية لل��صول إلى أجهزة البلوتوث المقترنة.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "لا توجد صلاحية للوصول إلى أجهزة البلوتوث المقترنة.", Toast.LENGTH_LONG).show()
             return false
         }
-        val device = pairedDevices.firstOrNull { it.name?.contains("printer", ignoreCase = true) == true }
-            ?: pairedDevices.firstOrNull()
+        val device = pairedDevices.firstOrNull {
+            val name = it.name.orEmpty()
+            name.contains("XP-P801", ignoreCase = true) || name.contains("P801", ignoreCase = true)
+        } ?: pairedDevices.firstOrNull {
+            it.name?.contains("printer", ignoreCase = true) == true
+        } ?: pairedDevices.firstOrNull()
+
         if (device == null) {
-            Toast.makeText(context, "لا توجد طابعات مقترنة. قم بإقران الطابعة أولاً.", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "لا توجد طابعات مقترنة. قم بإقران XP-P801 عبر إعدادات البلوتوث أولاً.", Toast.LENGTH_LONG).show()
             return false
         }
 
@@ -133,7 +136,7 @@ object InvoicePrinter {
                     out.flush()
                 }
             }
-            Toast.makeText(context, "تم إرسال الفاتورة إلى الطابعة.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "تم إرسال الفاتورة إلى الطابعة ${device.name ?: "XP-P801"}.", Toast.LENGTH_SHORT).show()
             true
         } catch (e: Exception) {
             Toast.makeText(context, "فشل الاتصال بالطابعة: ${e.message}", Toast.LENGTH_LONG).show()
@@ -142,9 +145,8 @@ object InvoicePrinter {
     }
 
     /**
-     * يرسم الفاتورة بمحرك Android النصي أولاً ثم يرسلها كصورة ESC/POS.
-     * بهذه الطريقة يتم تشكيل العربية واتجاه RTL على الهاتف، ولا يعتمد وضوحها
-     * على الخطوط/ترميز العربية المحدود داخل الطابعة.
+     * Render receipt text via Android's Arabic shaping/RTL engine and send a raster ESC/POS image.
+     * This avoids dependence on the printer's built-in Arabic font/code-page support.
      */
     fun buildThermalText(invoice: Invoice, company: CompanySettings): ByteArray {
         val lines = buildList {
@@ -196,9 +198,8 @@ object InvoicePrinter {
 
         val widthBytes = (bitmapWidth + 7) / 8
         val payload = ByteArrayOutputStreamCompat()
-        payload.write(byteArrayOf(0x1B, 0x40)) // ESC @: reset printer
-        // GS v 0: send a monochrome raster image.
-        payload.write(byteArrayOf(0x1D, 0x76, 0x30, 0x00))
+        payload.write(byteArrayOf(0x1B, 0x40)) // ESC @ reset
+        payload.write(byteArrayOf(0x1D, 0x76, 0x30, 0x00)) // GS v 0 raster image
         payload.write(widthBytes and 0xFF)
         payload.write((widthBytes shr 8) and 0xFF)
         payload.write(bitmapHeight and 0xFF)
@@ -220,12 +221,11 @@ object InvoicePrinter {
                 payload.write(value)
             }
         }
-        payload.write(byteArrayOf(0x0A, 0x0A, 0x0A)) // feed paper after receipt
+        payload.write(byteArrayOf(0x0A, 0x0A, 0x0A))
         bitmap.recycle()
         return payload.toByteArray()
     }
 
-    /** Minimal byte accumulator to keep the ESC/POS image encoding dependency-free. */
     private class ByteArrayOutputStreamCompat {
         private val buffer = java.io.ByteArrayOutputStream()
         fun write(value: Int) = buffer.write(value)
