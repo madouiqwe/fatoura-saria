@@ -128,6 +128,23 @@ fun InvoiceDetailScreen(
                 Button(
                     onClick = {
                         runCatching {
+                            val ok = InvoicePrinter.printDirectThermal(context, invoice, settings)
+                            if (!ok) {
+                                Toast.makeText(context, "تعذر الطباعة المباشرة، تأكد من إقران الطابعة وأذونات البلوتوث.", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("طباعة مباشرة", fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = {
+                        runCatching {
                             val file = InvoicePdf.create(context, invoice, settings)
                             InvoicePrinter.print(context, file, "فاتورة-${invoice.number}")
                         }.onFailure {
@@ -139,24 +156,27 @@ fun InvoiceDetailScreen(
                 ) {
                     Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("طباعة / PDF", fontWeight = FontWeight.Bold)
+                    Text("PDF", fontWeight = FontWeight.Bold)
                 }
-                OutlinedButton(
-                    onClick = {
-                        runCatching {
-                            val file = InvoicePdf.create(context, invoice, settings)
-                            InvoicePrinter.share(context, file)
-                        }.onFailure {
-                            Toast.makeText(context, "تعذر مشاركة الملف: ${it.message}", Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("مشاركة PDF", fontWeight = FontWeight.Bold)
-                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            OutlinedButton(
+                onClick = {
+                    runCatching {
+                        val file = InvoicePdf.create(context, invoice, settings)
+                        InvoicePrinter.share(context, file)
+                    }.onFailure {
+                        Toast.makeText(context, "تعذر مشاركة الملف: ${it.message}", Toast.LENGTH_LONG).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("مشاركة PDF", fontWeight = FontWeight.Bold)
             }
 
             Spacer(Modifier.height(10.dp))
@@ -209,7 +229,6 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(Modifier.padding(16.dp)) {
-            // ------------------------------- الترويسة
             Row(Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -234,7 +253,6 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
             HorizontalDivider(color = LineColor, thickness = 1.dp)
             Spacer(Modifier.height(10.dp))
 
-            // ------------------------------- معلومات الفاتورة
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -258,7 +276,6 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
 
             Spacer(Modifier.height(12.dp))
 
-            // ------------------------------- جدول الأصناف
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -335,7 +352,6 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
 
             Spacer(Modifier.height(12.dp))
 
-            // ------------------------------- المجاميع
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.End
@@ -403,3 +419,51 @@ private fun TotalRow(label: String, value: String) {
         Text(value, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+n
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
