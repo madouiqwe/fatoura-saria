@@ -146,42 +146,50 @@ object InvoicePrinter {
         }
     }
 
-    /** Build compact Arabic RTL receipt; package rows show piece price multiplied by pack count. */
+    /** Build a clear receipt table with package quantity, piece price, and line total. */
     fun buildThermalText(invoice: Invoice, company: CompanySettings): ByteArray {
+        val separator = "────────────────────────────"
         val lines = buildList {
             add(company.name.ifBlank { "اسم الشركة" })
             if (company.phone.isNotBlank()) add("الهاتف: ${company.phone}")
             if (company.address.isNotBlank()) add("العنوان: ${company.address}")
-            add("────────────────────────────")
+            add(separator)
             add("فاتورة: ${invoice.number}    ${Fmt.date(invoice.dateMillis)}")
             add("العميل: ${invoice.customerName.ifBlank { "عميل نقدي" }}")
             add("الدفع: ${invoice.paymentMethod.label}")
-            add("────────────────────────────")
+            add(separator)
+            add("جدول الأصناف")
             add("الصنف | الكمية | سعر الحبة | الإجمالي")
-            add("────────────────────────────")
+            add(separator)
+
             invoice.items.forEach { item ->
+                val capacity = item.unitsPerPackage.coerceAtLeast(1)
                 val name = item.name.ifBlank { "منتج" }
+                add(name)
                 if (item.unit == SaleUnit.PACKAGE) {
-                    val capacity = item.unitsPerPackage.coerceAtLeast(1)
-                    val piecePrice = if (capacity > 0) item.unitPrice / capacity.toDouble() else 0.0
-                    add("$name | ${Fmt.qty(item.quantity)} حزمة | ${Fmt.amount(piecePrice)} | ${Fmt.amount(item.lineTotal)}")
-                    add("= ${Fmt.qty(item.quantity)} × ${capacity} = ${Fmt.qty(item.totalPieces)} حبة")
+                    val piecePrice = item.unitPrice / capacity.toDouble()
+                    // Split information across readable table rows to prevent columns wrapping together.
+                    add("الكمية: ${Fmt.qty(item.quantity)} حزمة × $capacity = ${Fmt.qty(item.totalPieces)} حبة")
+                    add("سعر الحبة: ${Fmt.amount(piecePrice)} د.ج")
+                    add("الإجمالي: ${Fmt.amount(item.lineTotal)} د.ج")
                 } else {
-                    add("$name | ${Fmt.qty(item.quantity)} حبة | ${Fmt.amount(item.unitPrice)} | ${Fmt.amount(item.lineTotal)}")
+                    add("الكمية: ${Fmt.qty(item.quantity)} حبة")
+                    add("سعر الحبة: ${Fmt.amount(item.unitPrice)} د.ج")
+                    add("الإجمالي: ${Fmt.amount(item.lineTotal)} د.ج")
                 }
+                add(separator)
             }
-            add("────────────────────────────")
             add("المجموع: ${Fmt.money(invoice.subtotal)}")
             if (invoice.discount > 0.0) add("الخصم: ${Fmt.money(invoice.discount)}")
             add("الإجمالي النهائي: ${Fmt.money(invoice.total)}")
             if (invoice.notes.isNotBlank()) add("ملاحظات: ${invoice.notes}")
-            add("────────────────────────────")
+            add(separator)
             add(company.footerNote.ifBlank { "شكراً لتعاملكم معنا" })
         }
         val text = lines.joinToString("\n")
         val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
-            textSize = 29f
+            textSize = 25f
             typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
         }
         val layout = StaticLayout.Builder.obtain(text, 0, text.length, paint, THERMAL_WIDTH_DOTS - 32)
@@ -207,6 +215,7 @@ object InvoicePrinter {
                 canvas.translate(16f, (12 - top).toFloat())
                 layout.draw(canvas)
                 canvas.restore()
+                // GS v 0 raster bit image. Bounded bands avoid oversized image payloads.
                 output.write(byteArrayOf(0x1D, 0x76, 0x30, 0x00))
                 output.write(widthBytes and 0xFF)
                 output.write((widthBytes shr 8) and 0xFF)
