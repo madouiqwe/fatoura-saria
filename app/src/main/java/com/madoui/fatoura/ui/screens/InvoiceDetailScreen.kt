@@ -274,27 +274,53 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                     .padding(vertical = 8.dp)
             ) {
                 TableCell("الصنف", 2.2f, true, TextAlign.Start)
-                TableCell("الكمية", 1.35f, true)
-                TableCell("السعر", 1.25f, true)
+                TableCell("الكمية (حبة)", 1.35f, true)
+                TableCell("سعر الحبة", 1.25f, true)
                 TableCell("الإجمالي", 1.45f, true)
             }
 
             invoice.items.forEachIndexed { index, item ->
                 val rowColor = if (index % 2 == 0) Color.White else Color(0xFFF8FAFA)
+                val isPackage = item.unit == SaleUnit.PACKAGE
+                val packageCapacity = item.unitsPerPackage.coerceAtLeast(1)
+                val displayedQuantity = if (isPackage) item.totalPieces else item.quantity
+                val displayedUnitPrice = if (isPackage) item.unitPrice / packageCapacity.toDouble() else item.unitPrice
                 Row(
                     Modifier.fillMaxWidth().background(rowColor).padding(vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(2.2f).padding(horizontal = 4.dp)) {
                         Text(item.name, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (item.unit == SaleUnit.PACKAGE) Text("حزمة ${item.unitsPerPackage} حبة", fontSize = 8.5.sp, color = TextMuted)
+                        if (isPackage) {
+                            Text(
+                                "${Fmt.qty(item.quantity)} حزمة × $packageCapacity حبة",
+                                fontSize = 8.5.sp,
+                                color = TextMuted
+                            )
+                        }
                     }
-                    Column(Modifier.weight(1.35f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${Fmt.qty(item.quantity)} ${item.unit.label}", fontSize = 10.sp, color = TextPrimary)
-                        if (item.unit == SaleUnit.PACKAGE) Text("= ${Fmt.qty(item.totalPieces)} حبة", fontSize = 8.5.sp, color = TextMuted)
-                    }
-                    Text(Fmt.amount(item.unitPrice), Modifier.weight(1.25f), fontSize = 10.sp, color = TextPrimary, textAlign = TextAlign.Center)
-                    Text(Fmt.amount(item.lineTotal), Modifier.weight(1.45f), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = TextPrimary, textAlign = TextAlign.Center)
+                    Text(
+                        Fmt.qty(displayedQuantity),
+                        Modifier.weight(1.35f),
+                        fontSize = 10.sp,
+                        color = TextPrimary,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        Fmt.amount(displayedUnitPrice),
+                        Modifier.weight(1.25f),
+                        fontSize = 10.sp,
+                        color = TextPrimary,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        Fmt.amount(item.lineTotal),
+                        Modifier.weight(1.45f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        textAlign = TextAlign.Center
+                    )
                 }
                 HorizontalDivider(color = LineColor.copy(alpha = 0.7f))
             }
@@ -333,7 +359,7 @@ private fun androidx.compose.foundation.layout.RowScope.TableCell(
     align: TextAlign = TextAlign.Center
 ) {
     Text(
-        text = text,
+        text,
         modifier = Modifier.weight(weight).padding(horizontal = 4.dp),
         textAlign = align,
         fontSize = if (header) 10.5.sp else 10.sp,
