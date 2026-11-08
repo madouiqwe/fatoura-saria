@@ -1,0 +1,93 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Release APK
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Analyze Project Structure & Extract if needed
+        id: setup_project
+        run: |
+          echo "🔍 Checking project structure..."
+          
+          if [ -f "quick_invoice_v5.zip" ]; then
+            echo "📦 Found quick_invoice_v5.zip. Extracting latest version..."
+            EXTRACT_DIR="extracted_project"
+            mkdir -p "$EXTRACT_DIR"
+            unzip -o "quick_invoice_v5.zip" -d "$EXTRACT_DIR"
+            PROJECT_DIR="$EXTRACT_DIR"
+          elif [ -f "pubspec.yaml" ]; then
+            echo "✅ Found pubspec.yaml in root."
+            PROJECT_DIR="."
+          else
+            ZIP_FILE=$(find . -maxdepth 2 -type f -name "*.zip" | head -n 1)
+            if [ ! -z "$ZIP_FILE" ]; then
+              echo "📦 Found ZIP: $ZIP_FILE. Extracting..."
+              EXTRACT_DIR="extracted_project"
+              mkdir -p "$EXTRACT_DIR"
+              unzip -o "$ZIP_FILE" -d "$EXTRACT_DIR"
+              PUBSPEC_IN_ZIP=$(find "$EXTRACT_DIR" -maxdepth 3 -name "pubspec.yaml" -not -path "*/build/*" -not -path "*/.dart_tool/*" | head -n 1)
+              PROJECT_DIR=$(dirname "$PUBSPEC_IN_ZIP")
+            else
+              echo "❌ Error: No project found"
+              exit 1
+            fi
+          fi
+          
+          echo "project_dir=$PROJECT_DIR" >> $GITHUB_OUTPUT
+          echo "Working directory will be: $PROJECT_DIR"
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Clean and Install Dependencies
+        working-directory: ${{ steps.setup_project.outputs.project_dir }}
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Build Release APK
+        working-directory: ${{ steps.setup_project.outputs.project_dir }}
+        run: |
+          flutter build apk --release
+
+      - name: Locate Built APK
+        id: find_apk
+        working-directory: ${{ steps.setup_project.outputs.project_dir }}
+        run: |
+          APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+          if [ -f "$APK_PATH" ]; then
+            ABSOLUTE_PATH=$(realpath "$APK_PATH")
+            SIZE=$(du -h "$ABSOLUTE_PATH" | cut -f1)
+            echo "✅ Success! APK created at: $ABSOLUTE_PATH (Size: $SIZE)"
+            echo "apk_path=$ABSOLUTE_PATH" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Failed to find APK"
+            exit 1
+          fi
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk-v2
+          path: ${{ steps.find_apk.outputs.apk_path }}
+          retention-days: 7
+          if-no-files-found: error
