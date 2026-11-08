@@ -780,8 +780,17 @@ private fun QuickCalculatorTab(
     var pendingOp by remember { mutableStateOf<Char?>(null) }
     var resetOnNext by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
+    var calculationHistory by remember { mutableStateOf<List<String>>(emptyList()) }
+    var totalSum by remember { mutableStateOf(0.0) }
 
     val currentValue = display.toDoubleOrNull() ?: 0.0
+
+    fun addCalculationToHistory(expression: String, value: Double) {
+        if (value.isNaN() || value.isInfinite()) return
+        val item = "$expression = ${formatResult(value)}"
+        calculationHistory = (calculationHistory + item).takeLast(12)
+        totalSum += value
+    }
 
     fun inputDigit(digit: String) {
         display = when {
@@ -825,7 +834,9 @@ private fun QuickCalculatorTab(
         val previous = accumulator
         val op = pendingOp
         if (previous != null && op != null) {
-            display = formatResult(applyOperation(previous, value, op))
+            val result = applyOperation(previous, value, op)
+            display = formatResult(result)
+            addCalculationToHistory("${formatResult(previous)} $op ${formatResult(value)}", result)
         }
         accumulator = null
         pendingOp = null
@@ -871,6 +882,7 @@ private fun QuickCalculatorTab(
                 Spacer(Modifier.height(18.dp))
                 Text(
                     display,
+                    modifier = Modifier.fillMaxWidth(),
                     fontSize = 40.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
@@ -879,10 +891,52 @@ private fun QuickCalculatorTab(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(Fmt.money(currentValue), fontSize = 14.sp, color = Teal, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "المجموع: ${Fmt.money(totalSum)}",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TealDark
+                )
             }
         }
 
         Spacer(Modifier.height(16.dp))
+
+        if (calculationHistory.isNotEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        "سجل العمليات",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary
+                    )
+                    calculationHistory.asReversed().take(6).forEach { entry ->
+                        Text(
+                            entry,
+                            fontSize = 11.sp,
+                            color = TextMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
 
         val rows = listOf(
             listOf("C", "⌫", "%", "÷"),
@@ -1005,9 +1059,19 @@ private fun CalcKey(
         contentAlignment = Alignment.Center
     ) {
         if (label == "⌫") {
-            Icon(Icons.Filled.Backspace, contentDescription = "حذف", tint = contentColor)
+            Icon(
+                Icons.Filled.Backspace,
+                contentDescription = "حذف آخر رقم",
+                tint = contentColor,
+                modifier = Modifier.size(20.dp)
+            )
         } else {
-            Text(label, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = contentColor)
+            Text(
+                label,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = contentColor
+            )
         }
     }
 }
@@ -1025,22 +1089,17 @@ private fun QuickInvoiceDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(22.dp),
-        title = { Text("فاتورة سريعة", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+        title = {
+            Text("حفظ فاتورة سريعة", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+        },
         text = {
             Column {
-                Text(
-                    "المبلغ : ${Fmt.money(amount)}",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Teal
-                )
-                Spacer(Modifier.height(4.dp))
-                Text("رقم الفاتورة : $invoiceNumber", fontSize = 11.sp, color = TextMuted)
+                Text("المبلغ: ${Fmt.money(amount)}", fontWeight = FontWeight.Bold, color = Teal)
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("اسم العميل (اختياري)") },
+                    label = { Text("اسم العميل") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
