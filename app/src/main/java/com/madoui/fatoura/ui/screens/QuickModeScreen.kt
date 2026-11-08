@@ -1036,13 +1036,20 @@ private fun QuickCalculatorTab(
             invoiceNumber = nextInvoiceNumber,
             onDismiss = { showSaveDialog = false },
             onConfirm = { customerName, phone ->
-                val invoice = Invoice(
-                    number = nextInvoiceNumber,
-                    customerName = customerName,
-                    customerPhone = phone,
-                    paymentMethod = PaymentMethod.CASH,
-                    status = InvoiceStatus.PAID,
-                    items = listOf(
+                val invoiceItems = if (calculationHistory.isNotEmpty()) {
+                    calculationHistory.mapIndexed { index, line ->
+                        InvoiceItem(
+                            id = System.currentTimeMillis() + index,
+                            productId = null,
+                            name = line.label,
+                            unit = SaleUnit.PIECE,
+                            quantity = 1.0,
+                            unitsPerPackage = 1,
+                            unitPrice = line.amount
+                        )
+                    }
+                } else {
+                    listOf(
                         InvoiceItem(
                             id = System.currentTimeMillis(),
                             productId = null,
@@ -1053,6 +1060,15 @@ private fun QuickCalculatorTab(
                             unitPrice = currentValue
                         )
                     )
+                }
+
+                val invoice = Invoice(
+                    number = nextInvoiceNumber,
+                    customerName = customerName,
+                    customerPhone = phone,
+                    paymentMethod = PaymentMethod.CASH,
+                    status = InvoiceStatus.PAID,
+                    items = invoiceItems
                 )
                 showSaveDialog = false
                 onSaved(onSaveInvoice(invoice))
