@@ -17,8 +17,11 @@ import com.madoui.fatoura.data.SaleUnit
 import com.madoui.fatoura.util.Fmt
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-/** إنشاء فاتورة PDF احترافية بمقاس A4 مع دعم العربية. */
+/** إنشاء فاتورة A4 مرتبة مع تمييز ملخص الحاسبة عن فاتورة الأصناف. */
 object InvoicePdf {
 
     private const val PAGE_WIDTH = 595
@@ -39,33 +42,31 @@ object InvoicePdf {
     fun create(context: Context, invoice: Invoice, company: CompanySettings): File {
         val document = PdfDocument()
         val writer = PageWriter(document)
-        val calculatorInvoice = invoice.isCalculatorQuickInvoice()
-        drawHeader(writer, invoice, company, calculatorInvoice)
+        val isCalculator = invoice.isCalculatorQuickInvoice()
+        drawHeader(writer, invoice, company, isCalculator)
 
-        var y = drawMeta(writer, invoice, 132f, calculatorInvoice)
-        y = drawTableHeader(writer, y, calculatorInvoice)
+        var y = drawMeta(writer, invoice, 132f, isCalculator)
+        y = drawTableHeader(writer, y, isCalculator)
         invoice.items.forEachIndexed { index, item ->
-            val rowHeight = if (calculatorInvoice) 30f else if (item.unit == SaleUnit.PACKAGE) 36f else 30f
+            val rowHeight = if (isCalculator) 30f else if (item.unit == SaleUnit.PACKAGE) 36f else 30f
             if (y + rowHeight > PAGE_HEIGHT - 130f) {
                 writer.finishPage()
                 writer.startPage()
                 drawContinuationHeader(writer, invoice)
-                y = drawTableHeader(writer, 78f, calculatorInvoice)
+                y = drawTableHeader(writer, 78f, isCalculator)
             }
-            y = if (calculatorInvoice) {
-                drawCalculatorItemRow(writer, item, index, y, rowHeight)
-            } else {
-                drawItemRow(writer, item, index, y, rowHeight)
-            }
+            y = if (isCalculator) drawCalculatorItemRow(writer, item, index, y, rowHeight)
+            else drawItemRow(writer, item, index, y, rowHeight)
         }
-        if (y + 90f > PAGE_HEIGHT - 40f) {
+        if (y + 105f > PAGE_HEIGHT - 40f) {
             writer.finishPage()
             writer.startPage()
             drawContinuationHeader(writer, invoice)
             y = 90f
         }
         y = drawTotals(writer, invoice, y + 12f)
-        if (y + 55f < PAGE_HEIGHT - 30f) drawFooter(writer, company)
+        drawSignatureArea(writer, y + 18f)
+        drawFooter(writer, company)
         writer.finish()
 
         val dir = File(context.cacheDir, "invoices").apply { mkdirs() }
@@ -82,31 +83,35 @@ object InvoicePdf {
         }
     }
 
-    private fun drawHeader(writer: PageWriter, invoice: Invoice, company: CompanySettings, calculator: Boolean) {
+    private fun drawHeader(writer: PageWriter, invoice: Invoice, company: CompanySettings, isCalculator: Boolean) {
         val canvas = writer.canvas
+        val left = MARGIN
         val right = PAGE_WIDTH - MARGIN
         canvas.drawRoundRect(
-            RectF(MARGIN, 28f, right, 104f), 12f, 12f,
+            RectF(left, 28f, right, 112f), 12f, 12f,
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_TEAL_DARK }
         )
-        canvas.drawRoundRect(
-            RectF(MARGIN, 28f, MARGIN + 7f, 104f), 4f, 4f,
-            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_TEAL }
-        )
+        // مساحة شعار أنيقة؛ تستخدم أول حرف من اسم المؤسسة إلى حين إضافة صورة شعار فعلية.
+        val logoBounds = RectF(right - 58f, 42f, right - 18f, 82f)
+        canvas.drawRoundRect(logoBounds, 10f, 10f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE })
+        val logoText = company.name.trim().firstOrNull()?.toString() ?: "ف"
+        val logoPaint = textPaint(18f, COLOR_TEAL_DARK, bold = true).apply { textAlign = Paint.Align.CENTER }
+        canvas.drawText(logoText, logoBounds.centerX(), logoBounds.centerY() + 6f, logoPaint)
 
-        val companyPaint = textPaint(15f, Color.WHITE, bold = true).apply { textAlign = Paint.Align.RIGHT }
+        val companyPaint = textPaint(14f, Color.WHITE, bold = true).apply { textAlign = Paint.Align.RIGHT }
         val detailPaint = textPaint(8.5f, 0xFFE0F2EF.toInt()).apply { textAlign = Paint.Align.RIGHT }
-        val titlePaint = textPaint(17f, Color.WHITE, bold = true)
+        val titlePaint = textPaint(16f, Color.WHITE, bold = true)
         val metaPaint = textPaint(8.5f, 0xFFE0F2EF.toInt())
-
         val companyMaxWidth = 250f
-        canvas.drawText(ellipsize(company.name.ifBlank { "اسم شركتك" }, companyPaint, companyMaxWidth), right - 16f, 53f, companyPaint)
-        if (company.phone.isNotBlank()) canvas.drawText(ellipsize("هاتف: ${company.phone}", detailPaint, companyMaxWidth), right - 16f, 72f, detailPaint)
-        if (company.address.isNotBlank()) canvas.drawText(ellipsize("العنوان: ${company.address}", detailPaint, companyMaxWidth), right - 16f, 88f, detailPaint)
+        canvas.drawText(ellipsize(company.name.ifBlank { "اسم شركتك" }, companyPaint, companyMaxWidth), right - 70f, 53f, companyPaint)
+        if (company.phone.isNotBlank()) canvas.drawText(ellipsize("الهاتف: ${company.phone}", detailPaint, companyMaxWidth), right - 70f, 73f, detailPaint)
+        if (company.address.isNotBlank()) canvas.drawText(ellipsize("العنوان: ${company.address}", detailPaint, companyMaxWidth), right - 70f, 91f, detailPaint)
 
-        canvas.drawText(if (calculator) "فاتورة حاسبة" else "فاتورة مبيعات", MARGIN + 22f, 54f, titlePaint)
-        canvas.drawText("رقم الفاتورة: ${invoice.number}", MARGIN + 22f, 74f, metaPaint)
-        canvas.drawText(Fmt.date(invoice.dateMillis), MARGIN + 22f, 90f, metaPaint)
+        canvas.drawText(if (isCalculator) "فاتورة حسابات" else "فاتورة مبيعات", left + 14f, 54f, titlePaint)
+        canvas.drawText("رقم الفاتورة: ${invoice.number}", left + 14f, 76f, metaPaint)
+        canvas.drawText("التاريخ: ${Fmt.date(invoice.dateMillis)}", left + 14f, 94f, metaPaint)
+        val time = SimpleDateFormat("HH:mm", Locale("ar", "DZ")).format(Date(invoice.dateMillis))
+        canvas.drawText("الوقت: $time", left + 14f, 107f, metaPaint)
     }
 
     private fun drawContinuationHeader(writer: PageWriter, invoice: Invoice) {
@@ -117,7 +122,7 @@ object InvoicePdf {
         canvas.drawText("فاتورة رقم ${invoice.number} - متابعة", right - 12f, 49f, paint)
     }
 
-    private fun drawMeta(writer: PageWriter, invoice: Invoice, startY: Float, calculator: Boolean): Float {
+    private fun drawMeta(writer: PageWriter, invoice: Invoice, startY: Float, isCalculator: Boolean): Float {
         val canvas = writer.canvas
         val right = PAGE_WIDTH - MARGIN
         val left = MARGIN
@@ -151,9 +156,9 @@ object InvoicePdf {
             ellipsize("العميل: ${invoice.customerName.ifBlank { "عميل نقدي" }}", valuePaint, right - left - 28f),
             right - 12f, boxTop + 27f, valuePaint
         )
-        canvas.drawText("الدفع: ${invoice.paymentMethod.label}", right - 12f, boxTop + 49f, detailPaint)
+        canvas.drawText("طريقة الدفع: ${invoice.paymentMethod.label}", right - 12f, boxTop + 49f, detailPaint)
         canvas.drawText("عدد البنود: ${invoice.items.size}", left + 12f, boxTop + 52f, infoPaint)
-        if (!calculator) canvas.drawText("إجمالي القطع: ${Fmt.qty(invoice.totalPieces)}", left + 12f, boxTop + 64f, infoPaint)
+        if (!isCalculator) canvas.drawText("إجمالي القطع: ${Fmt.qty(invoice.totalPieces)}", left + 12f, boxTop + 64f, infoPaint)
         if (invoice.customerPhone.isNotBlank()) {
             canvas.drawText(ellipsize("الهاتف: ${invoice.customerPhone}", detailPaint, 180f), right - 12f, boxTop + 64f, detailPaint)
         }
@@ -165,7 +170,7 @@ object InvoicePdf {
     private val colPrice = 90f
     private val colTotal = 113f
 
-    private fun drawTableHeader(writer: PageWriter, top: Float, calculator: Boolean): Float {
+    private fun drawTableHeader(writer: PageWriter, top: Float, isCalculator: Boolean): Float {
         val canvas = writer.canvas
         val right = PAGE_WIDTH - MARGIN
         val left = MARGIN
@@ -173,11 +178,11 @@ object InvoicePdf {
         canvas.drawRoundRect(RectF(left, top, right, top + height), 5f, 5f, Paint().apply { color = COLOR_TEAL_DARK })
         val paint = textPaint(8.5f, Color.WHITE, bold = true).apply { textAlign = Paint.Align.CENTER }
         val baseline = top + 18f
-        if (calculator) {
+        if (isCalculator) {
             canvas.drawText("العملية الحسابية", right - 145f, baseline, paint)
             canvas.drawText("المبلغ", left + 55f, baseline, paint)
         } else {
-            canvas.drawText("الصنف", right - colName / 2f, baseline, paint)
+            canvas.drawText("الصنف / المنتج", right - colName / 2f, baseline, paint)
             canvas.drawText("الكمية", right - colName - colQty / 2f, baseline, paint)
             canvas.drawText("سعر الوحدة", right - colName - colQty - colPrice / 2f, baseline, paint)
             canvas.drawText("الإجمالي", left + colTotal / 2f, baseline, paint)
@@ -255,6 +260,21 @@ object InvoicePdf {
         canvas.drawText("الإجمالي النهائي", right - 12f, boxTop + 22f, finalLabel)
         canvas.drawText(Fmt.money(invoice.total), right - 150f, boxTop + 23f, finalValue)
         return boxBottom
+    }
+
+    private fun drawSignatureArea(writer: PageWriter, top: Float) {
+        if (top + 54f > PAGE_HEIGHT - 70f) return
+        val canvas = writer.canvas
+        val left = MARGIN
+        val right = PAGE_WIDTH - MARGIN
+        val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = COLOR_LINE; strokeWidth = 1f }
+        canvas.drawRoundRect(RectF(left, top, right, top + 48f), 8f, 8f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFAFBFB.toInt() })
+        val label = textPaint(8.5f, COLOR_MUTED)
+        label.textAlign = Paint.Align.CENTER
+        canvas.drawText("توقيع العميل", left + 95f, top + 18f, label)
+        canvas.drawLine(left + 28f, top + 36f, left + 162f, top + 36f, linePaint)
+        canvas.drawText("ختم المؤسسة", right - 95f, top + 18f, label)
+        canvas.drawLine(right - 162f, top + 36f, right - 28f, top + 36f, linePaint)
     }
 
     private fun drawFooter(writer: PageWriter, company: CompanySettings) {
