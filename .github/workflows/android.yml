@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -27,6 +27,12 @@ jobs:
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
           "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
+      - name: Ensure debug keystore exists
+        run: |
+          if [ ! -f debug.keystore ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
@@ -36,9 +42,28 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Prepare APK file
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk fatoura-saria-v2.0.apk
+
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fatoura-saria-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: fatoura-saria-v2.0
+          path: fatoura-saria-v2.0.apk
           if-no-files-found: error
+
+      - name: Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: v2.0
+          name: "فاتورة سريعة v2.0"
+          body: |
+            ## فاتورة سريعة v2.0
+            - سعات حزم مخصصة لكل منتج (10، 12، 24، إلخ)
+            - مرونة البيع بالحزم أو بالحبة المفردة
+            - طباعة ومعاينة الفاتورة وقالب PDF بالدينار الجزائري (د.ج)
+            - قاعدة بيانات محلية Room Database
+            - شاشة رئيسية بالوضع السريع، الفواتير المحفوظة، ودليل السلع
+          files: fatoura-saria-v2.0.apk
