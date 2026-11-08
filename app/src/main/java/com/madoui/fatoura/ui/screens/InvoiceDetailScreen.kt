@@ -230,6 +230,9 @@ fun InvoiceDetailScreen(
 
 @Composable
 private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
+    val orderedItems = invoice.items.sortedWith(
+        compareBy<androidx.compose.runtime.internal.ComposableLambda>? = null
+    )
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
@@ -279,7 +282,7 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                 TableCell("الإجمالي", 1.45f, true)
             }
 
-            invoice.items.forEachIndexed { index, item ->
+            orderedItems.forEachIndexed { index, item ->
                 val rowColor = if (index % 2 == 0) Color.White else Color(0xFFF8FAFA)
                 val isPackage = item.unit == SaleUnit.PACKAGE
                 val packageCapacity = item.unitsPerPackage.coerceAtLeast(1)
@@ -375,3 +378,4 @@ private fun TotalRow(label: String, value: String) {
         Text(value, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
     }
 }
+
