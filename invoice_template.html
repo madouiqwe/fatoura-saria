@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>قالب فاتورة احترافي - فاتورة سريعة</title>
+  <style>
+    :root {
+      --primary: #00796b;
+      --primary-dark: #004d40;
+      --primary-light: #e0f2f1;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f8fafc;
+      --danger: #ef4444;
+      --success: #10b981;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Cairo", "Tajawal", Tahoma, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    /* شريط التحكم العلوي (يختفي عند الطباعة) */
+    .toolbar {
+      width: 100%;
+      max-width: 850px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+    }
+
+    .toolbar-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: var(--primary-dark);
+    }
+
+    .btn-outline {
+      background: #fff;
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .btn-outline:hover {
+      background: var(--bg);
+      border-color: var(--text-muted);
+    }
+
+    .btn-danger {
+      background: #fee2e2;
+      color: var(--danger);
+      border: 1px solid #fecaca;
+    }
+    .btn-danger:hover {
+      background: #fecaca;
+    }
+
+    .format-toggle {
+      background: #f1f5f9;
+      border-radius: 8px;
+      padding: 4px;
+      display: flex;
+      gap: 4px;
+    }
+
+    .format-toggle button {
+      padding: 6px 12px;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+
+    .format-toggle button.active {
+      background: #ffffff;
+      color: var(--primary);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    /* حاوية الفاتورة الأساسية */
+    .invoice-wrapper {
+      background: #ffffff;
+      box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08);
+      border: 1px solid var(--border);
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    /* تنسيق مقاس A4 */
+    .invoice-wrapper.format-a4 {
+      width: 100%;
+      max-width: 820px;
+      min-height: 1050px;
+      padding: 40px;
+      border-radius: 12px;
+    }
+
+    /* تنسيق مقاس التذكرة الحرارية (Thermal Receipt 80mm) */
+    .invoice-wrapper.format-thermal {
+      width: 340px;
+      padding: 16px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      background: #fff;
+    }
+
+    /* الحقول القابلة للتعديل مباشرة */
+    .editable {
+      outline: none;
+      border: 1px dashed transparent;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: background 0.15s;
+    }
+    .editable:hover, .editable:focus {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+
+    /* رأس الفاتورة A4 */
+    .header-a4 {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid var(--primary);
+      padding-bottom: 24px;
+      margin-bottom: 24px;
+    }
+
+    .company-info {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .logo-container {
+      width: 70px;
+      height: 70px;
+      border-radius: 12px;
+      background: var(--primary-light);
+      border: 2px dashed var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .logo-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .company-details h1 {
+      font-size: 20px;
+      color: var(--primary);
+      margin-bottom: 4px;
+    }
+
+    .company-details p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    .invoice-meta {
+      text-align: left;
+    }
+
+    .invoice-meta h2 {
+      font-size: 22px;
+      color: var(--text);
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+    }
+
+    .meta-row {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 3px;
+    }
+    .meta-row span {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* بطاقة بيانات العميل وطريقة الدفع */
+    .customer-card-a4 {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 16px;
+    }
+
+    .info-block label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .info-block div {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* جدول الأصناف */
+    table.items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 24px;
+    }
+
+    table.items-table th {
+      background: var(--primary);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 12px;
+      text-align: right;
+    }
+
+    table.items-table th.center,
+    table.items-table td.center {
+      text-align: center;
+    }
+
+    table.items-table th.left,
+    table.items-table td.left {
+      text-align: left;
+    }
+
+    table.items-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    table.items-table tr:nth-child(even) td {
+      background: #fcfdfd;
+    }
+
+    .item-input {
+      width: 100%;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      outline: none;
+    }
+    .item-input.qty, .item-input.price {
+      text-align: center;
+      width: 80px;
+    }
+
+    .btn-remove-row {
+      background: none;
+      border: none;
+      color: #cbd5e1;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .btn-remove-row:hover {
+      color: var(--danger);
+      background: #fee2e2;
+    }
+
+    /* منطقة الحاسبة والمجاميع */
+    .calculation-section-a4 {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 28px;
+      gap: 20px;
+    }
+
+    .notes-area {
+      flex: 1;
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 90px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .notes-area label {
+      font-weight: 700;
+      font-size: 11px;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .summary-card {
+      width: 320px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .summary-row.grand-total {
+      background: var(--primary-light);
+      border-bottom: none;
+      padding: 12px 14px;
+    }
+
+    .grand-total .label {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--primary-dark);
+    }
+    .grand-total .value {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--primary-dark);
+    }
+
+    .discount-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .discount-control input {
+      width: 60px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 4px;
+      text-align: center;
+      font-size: 12px;
+    }
+    .discount-control select {
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px;
+      font-size: 11px;
+    }
+
+    /* التوقيع والتذييل */
+    .footer-a4 {
+      margin-top: 30px;
+      padding-top: 18px;
+      border-top: 1px dashed var(--border);
+    }
+
+    .signature-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+
+    .sig-box {
+      border-top: 1px solid var(--border);
+      padding-top: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .footer-note {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .barcode-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    /* نمط التذكرة الحرارية (Thermal POS 80mm) */
+    .format-thermal .header-a4 {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      border-bottom: 1px dashed #475569;
+      padding-bottom: 12px;
+      margin-bottom: 12px;
+    }
+    .format-thermal .company-info {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 6px;
+    }
+    .format-thermal .company-details h1 {
+      font-size: 16px;
+    }
+    .format-thermal .invoice-meta {
+      text-align: center;
+      margin-top: 8px;
+    }
+    .format-thermal .customer-card-a4 {
+      grid-template-columns: 1fr;
+      gap: 6px;
+      padding: 8px;
+      background: transparent;
+      border: 1px dashed var(--border);
+      margin-bottom: 12px;
+    }
+    .format-thermal table.items-table th {
+      font-size: 11px;
+      padding: 6px 4px;
+    }
+    .format-thermal table.items-table td {
+      font-size: 11px;
+      padding: 6px 4px;
+    }
+    .format-thermal .calculation-section-a4 {
+      flex-direction: column;
+    }
+    .format-thermal .summary-card {
+      width: 100%;
+    }
+    .format-thermal .signature-grid {
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    /* تنسيقات الطباعة الصارمة */
+    @media print {
+      body {
+        background: #fff !important;
+        padding: 0 !important;
+      }
+      .toolbar, .btn-remove-row, .btn-add-item-row {
+        display: none !important;
+      }
+      .invoice-wrapper {
+        border: none !important;
+        box-shadow: none !important;
+        width: 100% !important;
+        padding: 0 !important;
+      }
+      .invoice-wrapper.format-thermal {
+        width: 78mm !important;
+        margin: 0 auto !important;
+      }
+      .editable:hover, .editable:focus {
+        background: transparent !important;
+        border-color: transparent !important;
+      }
+      .item-input {
+        border: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- شريط التحكم التفاعلي -->
+  <div class="toolbar">
+    <div class="toolbar-group">
+      <span style="font-size: 13px; font-weight: 700; color: var(--primary);">تنسيق القالب:</span>
+      <div class="format-toggle">
+        <button id="btnA4" class="active" onclick="setFormat('a4')">مقاس A4 قياسي</button>
+        <button id="btnThermal" onclick="setFormat('thermal')">تذكرة حرارية (80mm)</button>
+      </div>
+    </div>
+
+    <div class="toolbar-group">
+      <button class="btn btn-outline" onclick="addNewItemRow()">➕ إضافة صنف جديد</button>
+      <button class="btn btn-outline" onclick="resetToSample()">🔄 استعادة البيانات</button>
+      <button class="btn btn-primary" onclick="window.print()">🖨️ طباعة الفاتورة</button>
+    </div>
+  </div>
+
+  <!-- حاوية الفاتورة الرئيسية -->
+  <div id="invoiceContainer" class="invoice-wrapper format-a4">
+
+    <!-- 1. رأس الفاتورة (Header) -->
+    <div class="header-a4">
+      <div class="company-info">
+        <label class="logo-container" title="اضغط لرفع شعار الشركة">
+          <input type="file" id="logoUpload" accept="image/*" style="display:none;" onchange="handleLogoUpload(this)">
+          <img id="logoImg" src="" alt="" style="display:none;">
+          <span id="logoPlaceholder" style="font-size: 26px; font-weight: bold; color: var(--primary);">🏢</span>
+        </label>
+        <div class="company-details">
+          <h1 class="editable" contenteditable="true" id="companyName">مؤسسة الأفق للتجارة والتوزيع</h1>
+          <p class="editable" contenteditable="true" id="companyPhone">الهاتف: 0555 12 34 56 / 021 98 76 54</p>
+          <p class="editable" contenteditable="true" id="companyAddress">العنوان: شارع الاستقلال، الجزائر العاصمة</p>
+          <p class="editable" contenteditable="true" id="companyTax">السجل التجاري: 16/00-1234567 | ر.ض: 001616012345678</p>
+        </div>
+      </div>
+
+      <div class="invoice-meta">
+        <h2>فاتورة مبيعات</h2>
+        <div class="meta-row">رقم الفاتورة: <span class="editable" contenteditable="true" id="invoiceNumber">INV-2026-868052</span></div>
+        <div class="meta-row">التاريخ: <span class="editable" contenteditable="true" id="invoiceDate">2026/11/08</span></div>
+        <div class="meta-row">الوقت: <span class="editable" contenteditable="true" id="invoiceTime">14:35</span></div>
+      </div>
+    </div>
+
+    <!-- بطاقة معلومات العميل والدفع -->
+    <div class="customer-card-a4">
+      <div class="info-block">
+        <label>بيانات العميل (Bill To)</label>
+        <div class="editable" contenteditable="true" id="customerName">السيد / رشيد بن محمد</div>
+        <div class="editable" contenteditable="true" id="customerPhone" style="font-size: 12px; color: var(--text-muted); font-weight: normal;">الهاتف: 0661 23 45 67</div>
+      </div>
+      <div class="info-block">
+        <label>طريقة الدفع</label>
+        <div>
+          <select id="paymentMethod" style="border: 1px solid var(--border); border-radius: 6px; padding: 4px; font-size: 13px; font-weight: 600;">
+            <option value="نقداً" selected>نقداً (Cash)</option>
+            <option value="آجل">آجل (Credit)</option>
+            <option value="بطاقة بنكية">بطاقة بنكية (Card)</option>
+            <option value="تحويل بنكي">تحويل بنكي (Transfer)</option>
+            <option value="صك بريدي/بنكي">شيك / صك (Cheque)</option>
+          </select>
+        </div>
+      </div>
+      <div class="info-block">
+        <label>حالة الفاتورة</label>
+        <div>
+          <select id="paymentStatus" style="border: 1px solid var(--border); border-radius: 6px; padding: 4px; font-size: 13px; font-weight: 600; color: var(--success);" onchange="updateStatusColor(this)">
+            <option value="مدفوعة" selected>مدفوعة بالكامل</option>
+            <option value="غير مدفوعة">غير مدفوعة</option>
+            <option value="مدفوعة جزئياً">مدفوعة جزئياً</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. جدول الأصناف (Items Table) -->
+    <table class="items-table" id="itemsTable">
+      <thead>
+        <tr>
+          <th style="width: 40px;" class="center">#</th>
+          <th>الصنف / المنتج</th>
+          <th class="center" style="width: 100px;">الكمية</th>
+          <th class="center" style="width: 130px;">سعر الحبة (د.ج)</th>
+          <th class="left" style="width: 130px;">الإجمالي الجزئي (د.ج)</th>
+          <th style="width: 35px;" class="center"></th>
+        </tr>
+      </thead>
+      <tbody id="itemsBody">
+        <!-- يتم توليد الصفوف برمجياً وتفاعلياً -->
+      </tbody>
+    </table>
+
+    <div style="margin-bottom: 20px;">
+      <button class="btn btn-outline btn-add-item-row" onclick="addNewItemRow()" style="font-size: 12px; padding: 5px 12px;">
+        ➕ إضافة سطر منتج
+      </button>
+    </div>
+
+    <!-- 3. منطقة الحاسبة والمجاميع (Calculator & Summary Section) -->
+    <div class="calculation-section-a4">
+      <!-- خانة الملاحظات وشروط البيع -->
+      <div class="notes-area">
+        <label>ملاحظات وشروط الفاتورة:</label>
+        <div class="editable" contenteditable="true" id="invoiceNotes">
+          - البضاعة المباعة لا ترد ولا تستبدل بعد مرور 48 ساعة.<br>
+          - الأسعار تشمل رسوم التوصيل المباشر.
+        </div>
+      </div>
+
+      <!-- بطاقة المجاميع التلقائية والحاسبة -->
+      <div class="summary-card">
+        <div class="summary-row">
+          <span style="color: var(--text-muted);">المجموع الفرعي (Subtotal):</span>
+          <span id="subtotalVal" style="font-weight: 700;">0.00 د.ج</span>
+        </div>
+
+        <div class="summary-row">
+          <div class="discount-control">
+            <span style="color: var(--text-muted);">الخصم (Discount):</span>
+            <input type="number" id="discountInput" value="0" min="0" step="any" oninput="calculateTotals()">
+            <select id="discountType" onchange="calculateTotals()">
+              <option value="fixed">د.ج</option>
+              <option value="percent">%</option>
+            </select>
+          </div>
+          <span id="discountVal" style="color: var(--danger); font-weight: 600;">- 0.00 د.ج</span>
+        </div>
+
+        <div class="summary-row">
+          <div class="discount-control">
+            <span style="color: var(--text-muted);">الضريبة / الرسوم:</span>
+            <select id="taxRate" onchange="calculateTotals()">
+              <option value="0" selected>بدون ضريبة (0%)</option>
+              <option value="9">رسم مخفض (9%)</option>
+              <option value="19">الرسم العادي (19%)</option>
+            </select>
+          </div>
+          <span id="taxVal" style="font-weight: 600;">0.00 د.ج</span>
+        </div>
+
+        <div class="summary-row grand-total">
+          <span class="label">الإجمالي النهائي (Total):</span>
+          <span class="value" id="grandTotalVal">0.00 د.ج</span>
+        </div>
+
+        <!-- حاسبة المبلغ المدفوع والباقي -->
+        <div class="summary-row" style="background: #fafafa; font-size: 12px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span>المبلغ المدفوع:</span>
+            <input type="number" id="paidAmountInput" placeholder="0" style="width: 80px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 4px;" oninput="calculateChange()">
+          </div>
+          <div>
+            <span>الباقي: </span>
+            <strong id="changeDueVal" style="color: var(--primary);">0.00 د.ج</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. ذيل الفاتورة (Footer) -->
+    <div class="footer-a4">
+      <div class="signature-grid">
+        <div class="sig-box">
+          <div style="height: 40px;"></div>
+          توقيع واستلام العميل
+        </div>
+        <div class="sig-box">
+          <div style="height: 40px;"></div>
+          خاتم وإمضاء المؤسسة
+        </div>
+      </div>
+
+      <div class="footer-note editable" contenteditable="true" id="footerNote">
+        شكراً لتعاملكم معنا، نسعد دائماً بخدمتكم! ✨
+      </div>
+
+      <!-- باركود مرمز برقم الفاتورة -->
+      <div class="barcode-container">
+        <svg id="barcodeSvg" width="220" height="42"></svg>
+        <div style="font-size: 10px; color: var(--text-muted); letter-spacing: 2px;" id="barcodeText">INV-2026-868052</div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // بيانات أولية نموذجية
+    const sampleItems = [
+      { name: "زيت طعام ممتاز 5 لتر", qty: 2, price: 650.00 },
+      { name: "سكر أبيض نقي 1 كغ", qty: 10, price: 95.00 },
+      { name: "حليب معقم كامل الدسم 1 لتر", qty: 6, price: 120.00 },
+      { name: "شاي أسود رفيع 250 غرام", qty: 4, price: 210.00 }
+    ];
+
+    let items = [...sampleItems];
+
+    // تبديل مقاس الفاتورة بين A4 وتذكرة حرارية
+    function setFormat(format) {
+      const container = document.getElementById('invoiceContainer');
+      const btnA4 = document.getElementById('btnA4');
+      const btnThermal = document.getElementById('btnThermal');
+
+      if (format === 'thermal') {
+        container.classList.remove('format-a4');
+        container.classList.add('format-thermal');
+        btnThermal.classList.add('active');
+        btnA4.classList.remove('active');
+      } else {
+        container.classList.remove('format-thermal');
+        container.classList.add('format-a4');
+        btnA4.classList.add('active');
+        btnThermal.classList.remove('active');
+      }
+    }
+
+    // تنسيق المبالغ بالدينار الجزائري مع الفواصل العشرية والآلاف
+    function formatMoney(amount) {
+      const num = Number(amount) || 0;
+      return num.toLocaleString('fr-DZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' د.ج';
+    }
+
+    // بناء جدول الأصناف
+    function renderItems() {
+      const tbody = document.getElementById('itemsBody');
+      tbody.innerHTML = '';
+
+      items.forEach((item, index) => {
+        const lineTotal = (item.qty || 0) * (item.price || 0);
+        const tr = document.createElement('tr');
+
+        tr.innerHTML = `
+          <td class="center" style="color: var(--text-muted); font-weight: 600;">${index + 1}</td>
+          <td>
+            <input type="text" class="item-input" value="${item.name}" placeholder="اسم الصنف / المنتج" oninput="updateItem(${index}, 'name', this.value)">
+          </td>
+          <td class="center">
+            <input type="number" class="item-input qty" value="${item.qty}" min="0.1" step="any" oninput="updateItem(${index}, 'qty', this.value)">
+          </td>
+          <td class="center">
+            <input type="number" class="item-input price" value="${item.price}" min="0" step="any" oninput="updateItem(${index}, 'price', this.value)">
+          </td>
+          <td class="left" style="font-weight: 700; color: var(--primary-dark);">
+            ${formatMoney(lineTotal)}
+          </td>
+          <td class="center">
+            <button class="btn-remove-row" onclick="removeItemRow(${index})" title="حذف هذا الصنف">✕</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      calculateTotals();
+    }
+
+    // تحديث بيانات الصنف
+    function updateItem(index, field, value) {
+      if (field === 'qty' || field === 'price') {
+        items[index][field] = parseFloat(value) || 0;
+      } else {
+        items[index][field] = value;
+      }
+      // إعادة حساب السطر والإجماليات
+      const row = document.getElementById('itemsBody').children[index];
+      if (row) {
+        const lineTotal = (items[index].qty || 0) * (items[index].price || 0);
+        row.querySelector('td.left').innerText = formatMoney(lineTotal);
+      }
+      calculateTotals();
+    }
+
+    // إضافة سطر صنف جديد
+    function addNewItemRow() {
+      items.push({ name: "صنف جديد", qty: 1, price: 0.00 });
+      renderItems();
+      // التركيز على حقل اسم الصنف الجديد
+      const rows = document.getElementById('itemsBody').children;
+      if (rows.length > 0) {
+        const lastInput = rows[rows.length - 1].querySelector('input');
+        if (lastInput) {
+          lastInput.focus();
+          lastInput.select();
+        }
+      }
+    }
+
+    // حذف صنف من الجدول
+    function removeItemRow(index) {
+      if (items.length <= 1) {
+        alert("يجب أن تحتوي الفاتورة على صنف واحد على الأقل.");
+        return;
+      }
+      items.splice(index, 1);
+      renderItems();
+    }
+
+    // حساب المجاميع والضرائب والخصومات
+    function calculateTotals() {
+      // 1. حساب المجموع الفرعي (Subtotal)
+      const subtotal = items.reduce((acc, item) => acc + ((item.qty || 0) * (item.price || 0)), 0);
+      document.getElementById('subtotalVal').innerText = formatMoney(subtotal);
+
+      // 2. حساب الخصم
+      const discountInput = parseFloat(document.getElementById('discountInput').value) || 0;
+      const discountType = document.getElementById('discountType').value;
+      let discountAmount = 0;
+
+      if (discountType === 'percent') {
+        discountAmount = (subtotal * discountInput) / 100;
+      } else {
+        discountAmount = discountInput;
+      }
+      discountAmount = Math.min(discountAmount, subtotal);
+      document.getElementById('discountVal').innerText = '- ' + formatMoney(discountAmount);
+
+      // 3. حساب الضريبة
+      const taxRate = parseFloat(document.getElementById('taxRate').value) || 0;
+      const taxableAmount = Math.max(0, subtotal - discountAmount);
+      const taxAmount = (taxableAmount * taxRate) / 100;
+      document.getElementById('taxVal').innerText = formatMoney(taxAmount);
+
+      // 4. الإجمالي النهائي (Grand Total)
+      const grandTotal = taxableAmount + taxAmount;
+      document.getElementById('grandTotalVal').innerText = formatMoney(grandTotal);
+
+      // تحديث الباقي إن وُجد
+      calculateChange();
+    }
+
+    // حاسبة المبلغ المتبقي للزبون
+    function calculateChange() {
+      const grandTotalText = document.getElementById('grandTotalVal').innerText.replace(/[^\d.,]/g, '').replace(',', '.');
+      // تحويل الرقم بشكل دقيق
+      const grandTotalParts = document.getElementById('grandTotalVal').innerText.match(/[\d\s,.]+/);
+      const subtotal = items.reduce((acc, item) => acc + ((item.qty || 0) * (item.price || 0)), 0);
+      const discountInput = parseFloat(document.getElementById('discountInput').value) || 0;
+      const discountType = document.getElementById('discountType').value;
+      const discountAmount = discountType === 'percent' ? (subtotal * discountInput) / 100 : discountInput;
+      const taxRate = parseFloat(document.getElementById('taxRate').value) || 0;
+      const taxable = Math.max(0, subtotal - discountAmount);
+      const grandTotal = taxable + (taxable * taxRate / 100);
+
+      const paid = parseFloat(document.getElementById('paidAmountInput').value) || 0;
+      const change = paid > 0 ? (paid - grandTotal) : 0;
+      const changeEl = document.getElementById('changeDueVal');
+
+      if (paid > 0) {
+        if (change >= 0) {
+          changeEl.innerText = formatMoney(change);
+          changeEl.style.color = "var(--primary)";
+        } else {
+          changeEl.innerText = `متبقي على العميل: ${formatMoney(Math.abs(change))}`;
+          changeEl.style.color = "var(--danger)";
+        }
+      } else {
+        changeEl.innerText = "0.00 د.ج";
+        changeEl.style.color = "var(--primary)";
+      }
+    }
+
+    // تحديث لون حالة الفاتورة
+    function updateStatusColor(select) {
+      if (select.value === 'مدفوعة') {
+        select.style.color = 'var(--success)';
+      } else if (select.value === 'غير مدفوعة') {
+        select.style.color = 'var(--danger)';
+      } else {
+        select.style.color = '#d97706';
+      }
+    }
+
+    // استعادة البيانات الأولية
+    function resetToSample() {
+      if (confirm("هل ترغب في إعادة ضبط البيانات إلى النموذج الافتراضي؟")) {
+        items = JSON.parse(JSON.stringify(sampleItems));
+        document.getElementById('discountInput').value = 0;
+        document.getElementById('taxRate').value = 0;
+        document.getElementById('paidAmountInput').value = '';
+        renderItems();
+      }
+    }
+
+    // معالجة رفع الشعار المخصص
+    function handleLogoUpload(input) {
+      if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const img = document.getElementById('logoImg');
+          const placeholder = document.getElementById('logoPlaceholder');
+          img.src = e.target.result;
+          img.style.display = 'block';
+          placeholder.style.display = 'none';
+        };
+        reader.readAsDataURL(input.files[0]);
+      }
+    }
+
+    // رسم باركود SVG تفاعلي مبسط لرقم الفاتورة
+    function renderBarcode(code) {
+      const svg = document.getElementById('barcodeSvg');
+      svg.innerHTML = '';
+      const text = code || "INV-2026-868052";
+      document.getElementById('barcodeText').innerText = text;
+
+      // خطوط الباركود التزيينية
+      const width = 220;
+      const height = 36;
+      let x = 10;
+      const barCount = 45;
+
+      for (let i = 0; i < barCount; i++) {
+        const barW = (i % 3 === 0) ? 3 : (i % 2 === 0 ? 1.5 : 2);
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", x);
+        rect.setAttribute("y", 0);
+        rect.setAttribute("width", barW);
+        rect.setAttribute("height", height);
+        rect.setAttribute("fill", "#1e293b");
+        svg.appendChild(rect);
+        x += barW + ((i % 4 === 0) ? 3 : 1.8);
+        if (x > width - 15) break;
+      }
+    }
+
+    // تشغيل عند فتح الصفحة
+    window.addEventListener('DOMContentLoaded', () => {
+      renderItems();
+      renderBarcode(document.getElementById('invoiceNumber').innerText.trim());
+
+      // استماع لتغيير رقم الفاتورة لتحديث الباركود
+      document.getElementById('invoiceNumber').addEventListener('blur', (e) => {
+        renderBarcode(e.target.innerText.trim());
+      });
+    });
+  </script>
+</body>
+</html>
