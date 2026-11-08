@@ -179,8 +179,8 @@ object InvoicePdf {
         val paint = textPaint(8.5f, Color.WHITE, bold = true).apply { textAlign = Paint.Align.CENTER }
         val baseline = top + 18f
         if (isCalculator) {
-            canvas.drawText("العملية الحسابية", right - 145f, baseline, paint)
-            canvas.drawText("المبلغ", left + 55f, baseline, paint)
+            canvas.drawText("البيان / العملية الحسابية", right - 145f, baseline, paint)
+            canvas.drawText("المبلغ (د.ج)", left + 55f, baseline, paint)
         } else {
             canvas.drawText("الصنف / المنتج", right - colName / 2f, baseline, paint)
             canvas.drawText("الكمية", right - colName - colQty / 2f, baseline, paint)
@@ -198,8 +198,9 @@ object InvoicePdf {
         if (index % 2 == 1) canvas.drawRect(RectF(left, top, right, bottom), Paint().apply { color = COLOR_ROW_ALT })
         val namePaint = textPaint(9f, COLOR_TEXT, bold = true).apply { textAlign = Paint.Align.RIGHT }
         val amountPaint = textPaint(9.5f, COLOR_TEAL_DARK, bold = true).apply { textAlign = Paint.Align.CENTER }
-        val name = if (item.name == "مبلغ إجمالي سريع") "مبلغ إجمالي سريع" else item.name
-        canvas.drawText(ellipsize(name, namePaint, 320f), right - 12f, top + height / 2f + 3f, namePaint)
+        val name = if (item.name == "مبلغ إجمالي سريع") "مبلغ مباشر" else item.name
+        val lineLabel = "${index + 1}. $name"
+        canvas.drawText(ellipsize(lineLabel, namePaint, 320f), right - 12f, top + height / 2f + 3f, namePaint)
         canvas.drawText(Fmt.money(item.lineTotal), left + 55f, top + height / 2f + 3f, amountPaint)
         canvas.drawLine(left, bottom, right, bottom, Paint().apply { color = COLOR_LINE; strokeWidth = 0.8f })
         return bottom

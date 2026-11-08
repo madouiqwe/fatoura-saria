@@ -735,10 +735,11 @@
       }
     }
 
-    // تنسيق المبالغ بالدينار الجزائري مع الفواصل العشرية والآلاف
+    // تنسيق المبالغ بالدينار الجزائري بدون فواصل (أرقام نقية)
     function formatMoney(amount) {
       const num = Number(amount) || 0;
-      return num.toLocaleString('fr-DZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' د.ج';
+      const formatted = (num % 1 === 0) ? num.toString() : num.toFixed(2).replace(/\.?0+$/, '');
+      return formatted + ' د.ج';
     }
 
     // بناء جدول الأصناف

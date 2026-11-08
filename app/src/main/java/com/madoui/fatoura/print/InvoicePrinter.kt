@@ -157,27 +157,42 @@ object InvoicePrinter {
             add("فاتورة: ${invoice.number}    ${Fmt.date(invoice.dateMillis)}")
             add("العميل: ${invoice.customerName.ifBlank { "عميل نقدي" }}")
             add("الدفع: ${invoice.paymentMethod.label}")
-            add(separator)
-            add("جدول الأصناف")
-            add("الصنف | الكمية | سعر الحبة | الإجمالي")
-            add(separator)
+            val isCalculator = invoice.items.isNotEmpty() && invoice.items.all {
+                it.productId == null && (it.name == "مبلغ إجمالي سريع" || it.name.any { ch -> ch in "+-×÷*/" })
+            }
 
-            invoice.items.forEach { item ->
-                val capacity = item.unitsPerPackage.coerceAtLeast(1)
-                val name = item.name.ifBlank { "منتج" }
-                add(name)
-                if (item.unit == SaleUnit.PACKAGE) {
-                    val piecePrice = item.unitPrice / capacity.toDouble()
-                    // Split information across readable table rows to prevent columns wrapping together.
-                    add("الكمية: ${Fmt.qty(item.quantity)} حزمة × $capacity = ${Fmt.qty(item.totalPieces)} حبة")
-                    add("سعر الحبة: ${Fmt.amount(piecePrice)} د.ج")
-                    add("الإجمالي: ${Fmt.amount(item.lineTotal)} د.ج")
-                } else {
-                    add("الكمية: ${Fmt.qty(item.quantity)} حبة")
-                    add("سعر الحبة: ${Fmt.amount(item.unitPrice)} د.ج")
-                    add("الإجمالي: ${Fmt.amount(item.lineTotal)} د.ج")
+            if (isCalculator) {
+                add("إيصال حساب فوري")
+                add(separator)
+                add("# | البيان / العملية | المبلغ")
+                add(separator)
+                invoice.items.forEachIndexed { idx, item ->
+                    val op = if (item.name == "مبلغ إجمالي سريع") "مبلغ مباشر" else item.name
+                    add("${idx + 1}. $op: ${Fmt.money(item.lineTotal)}")
                 }
                 add(separator)
+            } else {
+                add("جدول الأصناف")
+                add("الصنف | الكمية | سعر الحبة | الإجمالي")
+                add(separator)
+
+                invoice.items.forEach { item ->
+                    val capacity = item.unitsPerPackage.coerceAtLeast(1)
+                    val name = item.name.ifBlank { "منتج" }
+                    add(name)
+                    if (item.unit == SaleUnit.PACKAGE) {
+                        val piecePrice = item.unitPrice / capacity.toDouble()
+                        // Split information across readable table rows to prevent columns wrapping together.
+                        add("الكمية: ${Fmt.qty(item.quantity)} حزمة × $capacity = ${Fmt.qty(item.totalPieces)} حبة")
+                        add("سعر الحبة: ${Fmt.amount(piecePrice)} د.ج")
+                        add("الإجمالي: ${Fmt.amount(item.lineTotal)} د.ج")
+                    } else {
+                        add("الكمية: ${Fmt.qty(item.quantity)} حبة")
+                        add("سعر الحبة: ${Fmt.amount(item.unitPrice)} د.ج")
+                        add("الإجمالي: ${Fmt.amount(item.lineTotal)} د.ج")
+                    }
+                    add(separator)
+                }
             }
             add("المجموع: ${Fmt.money(invoice.subtotal)}")
             if (invoice.discount > 0.0) add("الخصم: ${Fmt.money(invoice.discount)}")
