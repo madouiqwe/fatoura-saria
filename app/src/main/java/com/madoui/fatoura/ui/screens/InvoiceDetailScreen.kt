@@ -229,18 +229,30 @@ fun InvoiceDetailScreen(
     }
 }
 
+private fun Invoice.isCalculatorQuickInvoice(): Boolean {
+    if (items.isEmpty() || items.any { it.productId != null }) return false
+    return items.all { item ->
+        item.name == "مبلغ إجمالي سريع" ||
+            item.name.any { it in "+-×÷*/" }
+    }
+}
+
 @Composable
 private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
-    val orderedItems = invoice.items.sortedWith(
-        compareBy<InvoiceItem> {
-            val unitPrice = if (it.unit == SaleUnit.PACKAGE) {
-                it.unitPrice / it.unitsPerPackage.coerceAtLeast(1).toDouble()
-            } else {
-                it.unitPrice
-            }
-            unitPrice
-        }.thenBy { it.name }
-    )
+    val calculatorInvoice = invoice.isCalculatorQuickInvoice()
+    val orderedItems = if (calculatorInvoice) {
+        invoice.items
+    } else {
+        invoice.items.sortedWith(
+            compareBy<InvoiceItem> {
+                if (it.unit == SaleUnit.PACKAGE) {
+                    it.unitPrice / it.unitsPerPackage.coerceAtLeast(1).toDouble()
+                } else {
+                    it.unitPrice
+                }
+            }.thenBy { it.name }
+        )
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -258,7 +270,7 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                     Text("العنوان : ${settings.address}", fontSize = 10.5.sp, color = TextMuted)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("فاتورة مبيعات", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Teal)
+                    Text(if (calculatorInvoice) "فاتورة حاسبة سريعة" else "فاتورة مبيعات", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Teal)
                     Spacer(Modifier.height(4.dp))
                     Text("رقم الفاتورة : ${invoice.number}", fontSize = 10.5.sp, color = TextMuted)
                     Text("التاريخ : ${Fmt.date(invoice.dateMillis)}", fontSize = 10.5.sp, color = TextMuted)
@@ -285,54 +297,84 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                     .background(TealDark, RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
                     .padding(vertical = 8.dp)
             ) {
-                TableCell("الصنف", 2.2f, true, TextAlign.Start)
-                TableCell("الكمية (حبة)", 1.35f, true)
-                TableCell("سعر الحبة", 1.25f, true)
-                TableCell("الإجمالي", 1.45f, true)
+                if (calculatorInvoice) {
+                    TableCell("العملية الحسابية", 2.2f, true, TextAlign.Start)
+                    TableCell("المبلغ", 1f, true)
+                } else {
+                    TableCell("الصنف", 2.2f, true, TextAlign.Start)
+                    TableCell("الكمية (حبة)", 1.35f, true)
+                    TableCell("سعر الحبة", 1.25f, true)
+                    TableCell("الإجمالي", 1.45f, true)
+                }
             }
 
             orderedItems.forEachIndexed { index, item ->
                 val rowColor = if (index % 2 == 0) Color.White else Color(0xFFF8FAFA)
-                val isPackage = item.unit == SaleUnit.PACKAGE
-                val packageCapacity = item.unitsPerPackage.coerceAtLeast(1)
-                val displayedQuantity = if (isPackage) item.totalPieces else item.quantity
-                val displayedUnitPrice = if (isPackage) item.unitPrice / packageCapacity.toDouble() else item.unitPrice
-                Row(
-                    Modifier.fillMaxWidth().background(rowColor).padding(vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(2.2f).padding(horizontal = 4.dp)) {
-                        Text(item.name, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (isPackage) {
-                            Text(
-                                "${Fmt.qty(item.quantity)} حزمة × $packageCapacity حبة",
-                                fontSize = 8.5.sp,
-                                color = TextMuted
-                            )
-                        }
+                if (calculatorInvoice) {
+                    Row(
+                        Modifier.fillMaxWidth().background(rowColor).padding(vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            if (item.name == "مبلغ إجمالي سريع") "مبلغ إجمالي سريع" else item.name,
+                            Modifier.weight(2.2f).padding(horizontal = 4.dp),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            Fmt.money(item.lineTotal),
+                            Modifier.weight(1f),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TealDark,
+                            textAlign = TextAlign.Center
+                        )
                     }
-                    Text(
-                        Fmt.qty(displayedQuantity),
-                        Modifier.weight(1.35f),
-                        fontSize = 10.sp,
-                        color = TextPrimary,
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        Fmt.amount(displayedUnitPrice),
-                        Modifier.weight(1.25f),
-                        fontSize = 10.sp,
-                        color = TextPrimary,
-                        textAlign = TextAlign.Center
-                    )
-                    Text(
-                        Fmt.amount(item.lineTotal),
-                        Modifier.weight(1.45f),
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        textAlign = TextAlign.Center
-                    )
+                } else {
+                    val isPackage = item.unit == SaleUnit.PACKAGE
+                    val packageCapacity = item.unitsPerPackage.coerceAtLeast(1)
+                    val displayedQuantity = if (isPackage) item.totalPieces else item.quantity
+                    val displayedUnitPrice = if (isPackage) item.unitPrice / packageCapacity.toDouble() else item.unitPrice
+                    Row(
+                        Modifier.fillMaxWidth().background(rowColor).padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(2.2f).padding(horizontal = 4.dp)) {
+                            Text(item.name, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (isPackage) {
+                                Text(
+                                    "${Fmt.qty(item.quantity)} حزمة × $packageCapacity حبة",
+                                    fontSize = 8.5.sp,
+                                    color = TextMuted
+                                )
+                            }
+                        }
+                        Text(
+                            Fmt.qty(displayedQuantity),
+                            Modifier.weight(1.35f),
+                            fontSize = 10.sp,
+                            color = TextPrimary,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            Fmt.amount(displayedUnitPrice),
+                            Modifier.weight(1.25f),
+                            fontSize = 10.sp,
+                            color = TextPrimary,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            Fmt.amount(item.lineTotal),
+                            Modifier.weight(1.45f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
                 HorizontalDivider(color = LineColor.copy(alpha = 0.7f))
             }
@@ -355,8 +397,10 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
-            Text("إجمالي القطع : ${Fmt.qty(invoice.totalPieces)} قطعة", fontSize = 9.5.sp, color = TextMuted)
+            if (!calculatorInvoice) {
+                Spacer(Modifier.height(10.dp))
+                Text("إجمالي القطع : ${Fmt.qty(invoice.totalPieces)} قطعة", fontSize = 9.5.sp, color = TextMuted)
+            }
             Spacer(Modifier.height(16.dp))
             Text(settings.footerNote.ifBlank { "شكراً لتعاملكم معنا" }, Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontSize = 11.sp, color = TextMuted)
         }
