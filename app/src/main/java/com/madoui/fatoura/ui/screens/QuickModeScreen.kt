@@ -85,6 +85,11 @@ private enum class QuickTab(val label: String) {
     CALCULATOR("حاسبة")
 }
 
+private data class QuickCalcInvoiceLine(
+    val label: String,
+    val amount: Double
+)
+
 /** سطر داخل سلة البيع السريع. */
 private data class QuickLine(
     val key: Long,
@@ -780,16 +785,15 @@ private fun QuickCalculatorTab(
     var pendingOp by remember { mutableStateOf<Char?>(null) }
     var resetOnNext by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
-    var calculationHistory by remember { mutableStateOf<List<String>>(emptyList()) }
-    var totalSum by remember { mutableStateOf(0.0) }
+    var calculationHistory by remember { mutableStateOf<List<QuickCalcInvoiceLine>>(emptyList()) }
 
     val currentValue = display.toDoubleOrNull() ?: 0.0
+    val totalSum = calculationHistory.sumOf { it.amount }
 
     fun addCalculationToHistory(expression: String, value: Double) {
         if (value.isNaN() || value.isInfinite()) return
-        val item = "$expression = ${formatResult(value)}"
+        val item = QuickCalcInvoiceLine(label = expression, amount = value)
         calculationHistory = (calculationHistory + item).takeLast(12)
-        totalSum += value
     }
 
     fun inputDigit(digit: String) {
@@ -848,6 +852,7 @@ private fun QuickCalculatorTab(
         accumulator = null
         pendingOp = null
         resetOnNext = false
+        calculationHistory = emptyList()
     }
 
     Column(
@@ -916,22 +921,46 @@ private fun QuickCalculatorTab(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        "سجل العمليات",
+                        "فاتورة سريعة",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextPrimary
                     )
-                    calculationHistory.asReversed().take(6).forEach { entry ->
-                        Text(
-                            entry,
-                            fontSize = 11.sp,
-                            color = TextMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+
+                    calculationHistory.asReversed().forEach { line ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                line.label,
+                                fontSize = 11.sp,
+                                color = TextMuted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                Fmt.money(line.amount),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TealDark
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = LineColor.copy(alpha = 0.7f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("الإجمالي", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text(Fmt.money(totalSum), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Teal)
                     }
                 }
             }
