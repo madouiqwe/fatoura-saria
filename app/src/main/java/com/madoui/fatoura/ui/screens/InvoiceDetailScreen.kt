@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.madoui.fatoura.data.CompanySettings
 import com.madoui.fatoura.data.Invoice
+import com.madoui.fatoura.data.InvoiceItem
 import com.madoui.fatoura.data.InvoiceStatus
 import com.madoui.fatoura.data.SaleUnit
 import com.madoui.fatoura.print.InvoicePdf
@@ -231,8 +232,16 @@ fun InvoiceDetailScreen(
 @Composable
 private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
     val orderedItems = invoice.items.sortedWith(
-        compareBy<androidx.compose.runtime.internal.ComposableLambda>? = null
+        compareBy<InvoiceItem> {
+            val unitPrice = if (it.unit == SaleUnit.PACKAGE) {
+                it.unitPrice / it.unitsPerPackage.coerceAtLeast(1).toDouble()
+            } else {
+                it.unitPrice
+            }
+            unitPrice
+        }.thenBy { it.name }
     )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
@@ -378,4 +387,3 @@ private fun TotalRow(label: String, value: String) {
         Text(value, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
     }
 }
-
