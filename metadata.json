@@ -1,0 +1,6 @@
+{
+  "name": "فاتورة سريعة",
+  "description": "تطبيق إدارة الفواتير والمبيعات السريعة والطباعة بنظام الحزم المتعددة v2.0",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
