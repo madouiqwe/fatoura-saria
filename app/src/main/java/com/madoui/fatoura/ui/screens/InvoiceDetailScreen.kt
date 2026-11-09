@@ -357,9 +357,9 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                     ) {
                         val displayName = if (item.name == "مبلغ إجمالي سريع") "مبلغ مباشر" else item.name
                         Text(
-                            "${index + 1}. $displayName",
+                            displayName,
                             Modifier.weight(2.2f).padding(horizontal = 4.dp),
-                            fontSize = 10.5.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = TextPrimary,
                             maxLines = 2,

@@ -164,11 +164,11 @@ object InvoicePrinter {
             if (isCalculator) {
                 add("إيصال حساب فوري")
                 add(separator)
-                add("# | البيان / العملية | المبلغ")
+                add("البيان / العملية | المبلغ")
                 add(separator)
-                invoice.items.forEachIndexed { idx, item ->
+                invoice.items.forEach { item ->
                     val op = if (item.name == "مبلغ إجمالي سريع") "مبلغ مباشر" else item.name
-                    add("${idx + 1}. $op: ${Fmt.money(item.lineTotal)}")
+                    add("$op : ${Fmt.money(item.lineTotal)}")
                 }
                 add(separator)
             } else {

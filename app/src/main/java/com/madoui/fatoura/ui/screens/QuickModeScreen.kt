@@ -37,6 +37,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -58,12 +59,24 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import com.madoui.fatoura.data.CompanySettings
 import com.madoui.fatoura.data.Invoice
 import com.madoui.fatoura.data.InvoiceItem
 import com.madoui.fatoura.data.InvoiceStatus
 import com.madoui.fatoura.data.PaymentMethod
 import com.madoui.fatoura.data.Product
 import com.madoui.fatoura.data.SaleUnit
+import com.madoui.fatoura.print.InvoicePrinter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.madoui.fatoura.ui.components.EmptyState
 import com.madoui.fatoura.ui.components.FatouraTopBar
 import com.madoui.fatoura.ui.theme.Amber
@@ -109,6 +122,7 @@ private val quickKeyGenerator = AtomicLong(System.currentTimeMillis())
 @Composable
 fun QuickModeScreen(
     products: List<Product>,
+    settings: CompanySettings = CompanySettings(),
     nextInvoiceNumber: String,
     onBack: () -> Unit,
     onSaveInvoice: (Invoice) -> Long,
@@ -222,6 +236,7 @@ fun QuickModeScreen(
 
                 QuickTab.CALCULATOR -> QuickCalculatorTab(
                     nextInvoiceNumber = nextInvoiceNumber,
+                    settings = settings,
                     onSaveInvoice = onSaveInvoice,
                     onSaved = onSaved,
                     modifier = Modifier.weight(1f)
@@ -776,24 +791,34 @@ private fun QuickCartSheet(
 @Composable
 private fun QuickCalculatorTab(
     nextInvoiceNumber: String,
+    settings: CompanySettings,
     onSaveInvoice: (Invoice) -> Long,
     onSaved: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var display by remember { mutableStateOf("0") }
     var accumulator by remember { mutableStateOf<Double?>(null) }
     var pendingOp by remember { mutableStateOf<Char?>(null) }
     var resetOnNext by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var calculationHistory by remember { mutableStateOf<List<QuickCalcInvoiceLine>>(emptyList()) }
+    var isPrinting by remember { mutableStateOf(false) }
 
     val currentValue = display.toDoubleOrNull() ?: 0.0
     val totalSum = calculationHistory.sumOf { it.amount }
+    val calcTotalPieces = calculationHistory.sumOf { parseQuickCalcLine(it, 0).totalPieces }
 
     fun addCalculationToHistory(expression: String, value: Double) {
         if (value.isNaN() || value.isInfinite()) return
         val item = QuickCalcInvoiceLine(label = expression, amount = value)
-        calculationHistory = (calculationHistory + item).takeLast(12)
+        calculationHistory = (calculationHistory + item).takeLast(25)
+    }
+
+    fun removeCalculation(index: Int) {
+        calculationHistory = calculationHistory.filterIndexed { i, _ -> i != index }
     }
 
     fun inputDigit(digit: String) {
@@ -825,10 +850,14 @@ private fun QuickCalculatorTab(
         val value = display.toDoubleOrNull() ?: 0.0
         val previous = accumulator
         val previousOp = pendingOp
-        accumulator = if (previous != null && previousOp != null && !resetOnNext) {
-            applyOperation(previous, value, previousOp)
-        } else value
-        accumulator?.let { display = formatResult(it) }
+        if (previous != null && previousOp != null && !resetOnNext) {
+            val result = applyOperation(previous, value, previousOp)
+            accumulator = result
+            display = formatResult(result)
+            addCalculationToHistory("${formatResult(previous)} $previousOp ${formatResult(value)}", result)
+        } else {
+            accumulator = value
+        }
         pendingOp = op
         resetOnNext = true
     }
@@ -847,12 +876,76 @@ private fun QuickCalculatorTab(
         resetOnNext = true
     }
 
+    fun quickMultiply(count: Int) {
+        val price = display.toDoubleOrNull() ?: 0.0
+        if (price > 0.0) {
+            val result = price * count
+            display = formatResult(result)
+            addCalculationToHistory("${formatResult(price)} × $count", result)
+            accumulator = null
+            pendingOp = null
+            resetOnNext = true
+        }
+    }
+
     fun clear() {
         display = "0"
         accumulator = null
         pendingOp = null
         resetOnNext = false
         calculationHistory = emptyList()
+    }
+
+    fun buildInvoice(customerName: String = "عميل نقدي", phone: String = ""): Invoice {
+        val invoiceItems = if (calculationHistory.isNotEmpty()) {
+            calculationHistory.mapIndexed { index, line ->
+                parseQuickCalcLine(line, index)
+            }
+        } else {
+            listOf(
+                parseQuickCalcLine(
+                    QuickCalcInvoiceLine(display, currentValue),
+                    0
+                )
+            )
+        }
+
+        return Invoice(
+            number = nextInvoiceNumber,
+            customerName = customerName.ifBlank { "عميل نقدي" },
+            customerPhone = phone,
+            paymentMethod = PaymentMethod.CASH,
+            status = InvoiceStatus.PAID,
+            items = invoiceItems
+        )
+    }
+
+    fun instantPrint() {
+        if (currentValue <= 0.0 && calculationHistory.isEmpty()) return
+        val invoice = buildInvoice()
+        val invoiceId = onSaveInvoice(invoice)
+        isPrinting = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { InvoicePrinter.printDirectThermal(context, invoice.copy(id = invoiceId), settings) }
+            }
+            isPrinting = false
+            result.onSuccess {
+                Toast.makeText(context, "تم الحفظ والطباعة فوراً بنجاح!", Toast.LENGTH_SHORT).show()
+                clear()
+            }.onFailure {
+                Toast.makeText(context, "تم الحفظ (تعذر الاتصال بالطابعة: ${it.message})", Toast.LENGTH_LONG).show()
+                onSaved(invoiceId)
+            }
+        }
+    }
+
+    fun instantSave() {
+        if (currentValue <= 0.0 && calculationHistory.isEmpty()) return
+        val invoice = buildInvoice()
+        val invoiceId = onSaveInvoice(invoice)
+        Toast.makeText(context, "تم حفظ الفاتورة رقم ${invoice.number}", Toast.LENGTH_SHORT).show()
+        onSaved(invoiceId)
     }
 
     Column(
@@ -879,36 +972,48 @@ private fun QuickCalculatorTab(
                             .background(AmberSoft, RoundedCornerShape(10.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
-                        Text("حساب فوري", fontSize = 10.sp, color = Amber, fontWeight = FontWeight.Bold)
+                        Text("حاسبة سريعة فورية", fontSize = 11.sp, color = Amber, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.weight(1f))
-                    Icon(Icons.Filled.Bolt, contentDescription = null, tint = Amber)
+                    if (calculationHistory.isNotEmpty()) {
+                        Text(
+                            "${calculationHistory.size} بنود | ${Fmt.qty(calcTotalPieces)} حبة",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TealDark
+                        )
+                    }
                 }
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(14.dp))
                 Text(
                     display,
                     modifier = Modifier.fillMaxWidth(),
-                    fontSize = 40.sp,
+                    fontSize = 38.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimary,
                     maxLines = 1,
                     textAlign = TextAlign.End
                 )
-                Spacer(Modifier.height(6.dp))
-                Text(Fmt.money(currentValue), fontSize = 14.sp, color = Teal, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "المجموع: ${Fmt.money(totalSum)}",
+                Spacer(Modifier.height(4.dp))
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.End,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TealDark
-                )
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(Fmt.money(currentValue), fontSize = 13.sp, color = Teal, fontWeight = FontWeight.SemiBold)
+                    if (calculationHistory.isNotEmpty()) {
+                        Text(
+                            "المجموع الكلي: ${Fmt.money(totalSum)}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TealDark
+                        )
+                    }
+                }
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
 
         if (calculationHistory.isNotEmpty()) {
             Card(
@@ -923,25 +1028,39 @@ private fun QuickCalculatorTab(
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        "فاتورة سريعة",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "بنود الفاتورة الحالية (دون أرقام ترتيب)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        TextButton(
+                            onClick = { clear() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("مسح الكل", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
 
-                    val calcTotalPieces = calculationHistory.sumOf { parseQuickCalcLine(it, 0).totalPieces }
-                    calculationHistory.asReversed().forEach { line ->
+                    calculationHistory.forEachIndexed { idx, line ->
                         val parsed = parseQuickCalcLine(line, 0)
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFF9FAFB), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     line.label,
-                                    fontSize = 12.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextPrimary,
                                     maxLines = 1,
@@ -957,10 +1076,22 @@ private fun QuickCalculatorTab(
                             }
                             Text(
                                 Fmt.money(line.amount),
-                                fontSize = 12.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TealDark
                             )
+                            Spacer(Modifier.width(6.dp))
+                            IconButton(
+                                onClick = { removeCalculation(idx) },
+                                modifier = Modifier.size(26.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "حذف السطر",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
 
@@ -970,13 +1101,42 @@ private fun QuickCalculatorTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("إجمالي عدد القطع: ${Fmt.qty(calcTotalPieces)} حبة", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
-                        Text(Fmt.money(totalSum), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Teal)
+                        Text("إجمالي عدد الحبات: ${Fmt.qty(calcTotalPieces)} حبة", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
+                        Text(Fmt.money(totalSum), fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Teal)
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
         }
+
+        // شريط مضاعفات الحبات السريع لتسريع الإدخال
+        Text("مضاعفات سريعة للحبات:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            listOf(10, 12, 24, 6, 50, 100).forEach { count ->
+                Surface(
+                    onClick = { quickMultiply(count) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp),
+                    color = TealSoft,
+                    tonalElevation = 1.dp
+                ) {
+                    Text(
+                        "× $count",
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        textAlign = TextAlign.Center,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TealDark
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
 
         val rows = listOf(
             listOf("C", "⌫", "%", "÷"),
@@ -1017,32 +1177,64 @@ private fun QuickCalculatorTab(
             Spacer(Modifier.height(10.dp))
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
 
+        val hasContent = currentValue > 0.0 || calculationHistory.isNotEmpty()
+
+        // 1. زر الطباعة الفورية المباشرة (نقرة واحدة)
         Button(
-            onClick = { showSaveDialog = true },
+            onClick = { instantPrint() },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
+                .height(54.dp),
             shape = RoundedCornerShape(14.dp),
-            enabled = currentValue > 0.0 || calculationHistory.isNotEmpty()
+            enabled = hasContent && !isPrinting,
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF1B8755),
+                contentColor = Color.White
+            )
         ) {
-            val label = if (calculationHistory.isNotEmpty()) {
-                "إنشاء فاتورة (${calculationHistory.size} بنود - ${Fmt.money(totalSum)})"
-            } else {
-                "إنشاء فاتورة بهذا المبلغ"
-            }
-            Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (isPrinting) "جارِ إرسال الأمر للطابعة..." else "طباعة فورية بنقرة واحدة (XP-P801)",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            )
         }
 
-        Spacer(Modifier.height(10.dp))
-        Text(
-            "حوّل نتيجة الحساب إلى فاتورة فورية مع إمكانية الطباعة والمشاركة وحساب عدد الحبات بدقة.",
+        Spacer(Modifier.height(8.dp))
+
+        // 2. شريط الأزرار السريعة الإضافية
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-            fontSize = 11.sp,
-            color = TextMuted
-        )
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = { instantSave() },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                enabled = hasContent
+            ) {
+                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("حفظ سريع", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+            }
+
+            androidx.compose.material3.OutlinedButton(
+                onClick = { showSaveDialog = true },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                enabled = hasContent
+            ) {
+                Text("تخصيص عميل...", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            }
+        }
+
         Spacer(Modifier.height(16.dp))
     }
 
@@ -1053,27 +1245,7 @@ private fun QuickCalculatorTab(
             invoiceNumber = nextInvoiceNumber,
             onDismiss = { showSaveDialog = false },
             onConfirm = { customerName, phone ->
-                val invoiceItems = if (calculationHistory.isNotEmpty()) {
-                    calculationHistory.mapIndexed { index, line ->
-                        parseQuickCalcLine(line, index)
-                    }
-                } else {
-                    listOf(
-                        parseQuickCalcLine(
-                            QuickCalcInvoiceLine(display, currentValue),
-                            0
-                        )
-                    )
-                }
-
-                val invoice = Invoice(
-                    number = nextInvoiceNumber,
-                    customerName = customerName,
-                    customerPhone = phone,
-                    paymentMethod = PaymentMethod.CASH,
-                    status = InvoiceStatus.PAID,
-                    items = invoiceItems
-                )
+                val invoice = buildInvoice(customerName, phone)
                 showSaveDialog = false
                 onSaved(onSaveInvoice(invoice))
             }

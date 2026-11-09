@@ -199,7 +199,7 @@ object InvoicePdf {
         val namePaint = textPaint(9f, COLOR_TEXT, bold = true).apply { textAlign = Paint.Align.RIGHT }
         val amountPaint = textPaint(9.5f, COLOR_TEAL_DARK, bold = true).apply { textAlign = Paint.Align.CENTER }
         val name = if (item.name == "مبلغ إجمالي سريع") "مبلغ مباشر" else item.name
-        val lineLabel = "${index + 1}. $name"
+        val lineLabel = name
         canvas.drawText(ellipsize(lineLabel, namePaint, 320f), right - 12f, top + height / 2f + 3f, namePaint)
         canvas.drawText(Fmt.money(item.lineTotal), left + 55f, top + height / 2f + 3f, amountPaint)
         canvas.drawLine(left, bottom, right, bottom, Paint().apply { color = COLOR_LINE; strokeWidth = 0.8f })
