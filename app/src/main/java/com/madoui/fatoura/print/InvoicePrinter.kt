@@ -181,9 +181,8 @@ object InvoicePrinter {
                     val name = item.name.ifBlank { "منتج" }
                     add(name)
                     if (item.unit == SaleUnit.PACKAGE) {
-                        val piecePrice = item.unitPrice / capacity.toDouble()
-                        // Split information across readable table rows to prevent columns wrapping together.
-                        add("الكمية: ${Fmt.qty(item.quantity)} حزمة × $capacity = ${Fmt.qty(item.totalPieces)} حبة")
+                        val piecePrice = item.piecePrice
+                        add("الكمية: ${Fmt.qty(item.totalPieces)} حبة (${Fmt.qty(item.quantity)} حزمة × $capacity)")
                         add("سعر الحبة: ${Fmt.amount(piecePrice)} د.ج")
                         add("الإجمالي: ${Fmt.amount(item.lineTotal)} د.ج")
                     } else {
@@ -194,6 +193,7 @@ object InvoicePrinter {
                     add(separator)
                 }
             }
+            add("إجمالي عدد الحبات: ${Fmt.qty(invoice.totalPieces)} حبة")
             add("المجموع: ${Fmt.money(invoice.subtotal)}")
             if (invoice.discount > 0.0) add("الخصم: ${Fmt.money(invoice.discount)}")
             add("الإجمالي النهائي: ${Fmt.money(invoice.total)}")

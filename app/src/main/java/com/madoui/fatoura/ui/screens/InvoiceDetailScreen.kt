@@ -342,8 +342,8 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                     TableCell("المبلغ", 1f, true)
                 } else {
                     TableCell("الصنف / المنتج", 2.2f, true, TextAlign.Start)
-                    TableCell("الكمية", 1.35f, true)
-                    TableCell("سعر الوحدة", 1.25f, true)
+                    TableCell("الكمية (حبة)", 1.35f, true)
+                    TableCell("سعر الحبة", 1.25f, true)
                     TableCell("الإجمالي", 1.45f, true)
                 }
             }
@@ -377,8 +377,8 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                 } else {
                     val isPackage = item.unit == SaleUnit.PACKAGE
                     val packageCapacity = item.unitsPerPackage.coerceAtLeast(1)
-                    val displayedQuantity = if (isPackage) item.totalPieces else item.quantity
-                    val displayedUnitPrice = if (isPackage) item.unitPrice / packageCapacity.toDouble() else item.unitPrice
+                    val displayedQuantity = item.totalPieces
+                    val displayedUnitPrice = item.piecePrice
                     Row(
                         Modifier.fillMaxWidth().background(rowColor).padding(vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -390,8 +390,8 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                             }
                         }
                         Text(
-                            Fmt.qty(displayedQuantity), Modifier.weight(1.35f), fontSize = 10.sp,
-                            color = TextPrimary, textAlign = TextAlign.Center
+                            "${Fmt.qty(displayedQuantity)} حبة", Modifier.weight(1.35f), fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold, color = TealDark, textAlign = TextAlign.Center
                         )
                         Text(
                             Fmt.amount(displayedUnitPrice), Modifier.weight(1.25f), fontSize = 10.sp,
@@ -414,6 +414,8 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                 elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
             ) {
                 Column(Modifier.fillMaxWidth().padding(14.dp), horizontalAlignment = Alignment.End) {
+                    TotalRow("إجمالي عدد القطع", "${Fmt.qty(invoice.totalPieces)} حبة")
+                    Spacer(Modifier.height(7.dp))
                     TotalRow("المجموع الفرعي", Fmt.money(invoice.subtotal))
                     if (invoice.discount > 0.0) {
                         Spacer(Modifier.height(7.dp))

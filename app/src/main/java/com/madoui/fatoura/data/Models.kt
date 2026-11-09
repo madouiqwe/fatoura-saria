@@ -74,14 +74,32 @@ data class InvoiceItem(
     val unitsPerPackage: Int = 1,
     val unitPrice: Double = 0.0
 ) {
+    /** إجمالي عدد الحبات الفعلي لهذا البند */
     val totalPieces: Double
         get() = quantity * if (unit == SaleUnit.PACKAGE) unitsPerPackage.coerceAtLeast(1) else 1
 
+    /** الإجمالي المالي للبند */
     val lineTotal: Double
         get() = quantity * unitPrice
 
+    /** سعر الحبة الواحدة المفردة دائمًا */
+    val piecePrice: Double
+        get() = if (unit == SaleUnit.PACKAGE && unitsPerPackage > 1) {
+            unitPrice / unitsPerPackage.toDouble()
+        } else {
+            unitPrice
+        }
+
+    /** نص توضيحي للكمية يظهر عدد الحبات بدقة واحترافية */
+    val piecesDisplay: String
+        get() = if (unit == SaleUnit.PACKAGE) {
+            "${com.madoui.fatoura.util.Fmt.qty(totalPieces)} حبة (${com.madoui.fatoura.util.Fmt.qty(quantity)} حزمة × $unitsPerPackage)"
+        } else {
+            "${com.madoui.fatoura.util.Fmt.qty(quantity)} حبة"
+        }
+
     val quantityLabel: String
-        get() = "${com.madoui.fatoura.util.Fmt.qty(quantity)} ${unit.label}"
+        get() = piecesDisplay
 }
 
 @Serializable
@@ -110,8 +128,8 @@ data class Invoice(
 
 @Serializable
 data class CompanySettings(
-    val name: String = "اسم شركتك",
-    val phone: String = "0555 55 55 55",
+    val name: String = "أولاد الطاهر للتجارة",
+    val phone: String = "0668153994",
     val address: String = "العنوان",
     val footerNote: String = "شكراً لتعاملكم معنا"
 )
@@ -124,7 +142,7 @@ data class AppData(
     val settings: CompanySettings = CompanySettings(),
     val nextProductId: Long = 1L,
     val nextInvoiceId: Long = 1L,
-    val nextInvoiceNumber: Long = 868052L,
+    val nextInvoiceNumber: Long = 868056L,
     val seeded: Boolean = false
 ) {
     val collectedSales: Double

@@ -29,10 +29,65 @@ class FatouraRepository(context: Context) {
         val loaded = runCatching {
             if (file.exists()) json.decodeFromString<AppData>(file.readText()) else null
         }.getOrNull()
-        if (loaded != null) return loaded
+        if (loaded != null) {
+            // تحديث بيانات المتجر إذا كانت فارغة أو بالقيم الافتراضية القديمة
+            val updatedSettings = if (loaded.settings.name == "اسم شركتك" || loaded.settings.phone == "0555 55 55 55") {
+                loaded.settings.copy(
+                    name = "أولاد الطاهر للتجارة",
+                    phone = "0668153994",
+                    address = "العنوان",
+                    footerNote = "شكراً لتعاملكم معنا"
+                )
+            } else loaded.settings
+            return loaded.copy(settings = updatedSettings)
+        }
+
+        val sampleInvoices = listOf(
+            Invoice(
+                id = 1L,
+                number = "868056",
+                dateMillis = System.currentTimeMillis(),
+                customerName = "عميل نقدي",
+                customerPhone = "",
+                paymentMethod = PaymentMethod.CASH,
+                status = InvoiceStatus.PAID,
+                items = listOf(
+                    InvoiceItem(
+                        id = 101L,
+                        productId = null,
+                        name = "350 × 12",
+                        unit = SaleUnit.PIECE,
+                        quantity = 12.0,
+                        unitsPerPackage = 1,
+                        unitPrice = 350.0
+                    ),
+                    InvoiceItem(
+                        id = 102L,
+                        productId = null,
+                        name = "420 × 12",
+                        unit = SaleUnit.PIECE,
+                        quantity = 12.0,
+                        unitsPerPackage = 1,
+                        unitPrice = 420.0
+                    )
+                ),
+                discount = 0.0,
+                notes = ""
+            )
+        )
+
         val fresh = AppData(
             products = demoProducts(),
+            invoices = sampleInvoices,
+            settings = CompanySettings(
+                name = "أولاد الطاهر للتجارة",
+                phone = "0668153994",
+                address = "العنوان",
+                footerNote = "شكراً لتعاملكم معنا"
+            ),
             nextProductId = 17L,
+            nextInvoiceId = 2L,
+            nextInvoiceNumber = 868057L,
             seeded = true
         )
         persist(fresh)

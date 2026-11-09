@@ -183,9 +183,9 @@ object InvoicePdf {
             canvas.drawText("المبلغ (د.ج)", left + 55f, baseline, paint)
         } else {
             canvas.drawText("الصنف / المنتج", right - colName / 2f, baseline, paint)
-            canvas.drawText("الكمية", right - colName - colQty / 2f, baseline, paint)
-            canvas.drawText("سعر الوحدة", right - colName - colQty - colPrice / 2f, baseline, paint)
-            canvas.drawText("الإجمالي", left + colTotal / 2f, baseline, paint)
+            canvas.drawText("الكمية (حبة)", right - colName - colQty / 2f, baseline, paint)
+            canvas.drawText("سعر الحبة (د.ج)", right - colName - colQty - colPrice / 2f, baseline, paint)
+            canvas.drawText("الإجمالي (د.ج)", left + colTotal / 2f, baseline, paint)
         }
         return top + height
     }
@@ -226,9 +226,9 @@ object InvoicePdf {
             canvas.drawText("${Fmt.qty(item.quantity)} حزمة × $capacity حبة", nameRight, top + 25f, subPaint)
         }
 
-        val displayedQuantity = if (isPackage) item.totalPieces else item.quantity
-        val displayedUnitPrice = if (isPackage) item.unitPrice / capacity.toDouble() else item.unitPrice
-        canvas.drawText(Fmt.qty(displayedQuantity), right - colName - colQty / 2f, top + height / 2f + 3f, cellPaint)
+        val displayedQuantity = item.totalPieces
+        val displayedUnitPrice = item.piecePrice
+        canvas.drawText("${Fmt.qty(displayedQuantity)} حبة", right - colName - colQty / 2f, top + height / 2f + 3f, cellPaint)
         canvas.drawText(Fmt.amount(displayedUnitPrice), right - colName - colQty - colPrice / 2f, top + height / 2f + 3f, cellPaint)
         canvas.drawText(Fmt.amount(item.lineTotal), left + colTotal / 2f, top + height / 2f + 3f, totalPaint)
         canvas.drawLine(left, bottom, right, bottom, Paint().apply { color = COLOR_LINE; strokeWidth = 0.8f })
@@ -241,6 +241,9 @@ object InvoicePdf {
         var y = startY + 8f
         val labelPaint = textPaint(9f, COLOR_MUTED).apply { textAlign = Paint.Align.RIGHT }
         val valuePaint = textPaint(9.5f, COLOR_TEXT, bold = true).apply { textAlign = Paint.Align.RIGHT }
+        canvas.drawText("إجمالي عدد القطع", right - 100f, y, labelPaint)
+        canvas.drawText("${Fmt.qty(invoice.totalPieces)} حبة", right - 8f, y, valuePaint)
+        y += 17f
         canvas.drawText("المجموع الفرعي", right - 100f, y, labelPaint)
         canvas.drawText(Fmt.money(invoice.subtotal), right - 8f, y, valuePaint)
         y += 17f

@@ -930,23 +930,34 @@ private fun QuickCalculatorTab(
                         color = TextPrimary
                     )
 
+                    val calcTotalPieces = calculationHistory.sumOf { parseQuickCalcLine(it, 0).totalPieces }
                     calculationHistory.asReversed().forEach { line ->
+                        val parsed = parseQuickCalcLine(line, 0)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                line.label,
-                                fontSize = 11.sp,
-                                color = TextMuted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    line.label,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (parsed.quantity > 1.0) {
+                                    Text(
+                                        "${Fmt.qty(parsed.quantity)} حبة × ${Fmt.amount(parsed.unitPrice)} د.ج",
+                                        fontSize = 10.sp,
+                                        color = TealDark
+                                    )
+                                }
+                            }
                             Text(
                                 Fmt.money(line.amount),
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TealDark
                             )
@@ -959,8 +970,8 @@ private fun QuickCalculatorTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("الإجمالي", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                        Text(Fmt.money(totalSum), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Teal)
+                        Text("إجمالي عدد القطع: ${Fmt.qty(calcTotalPieces)} حبة", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
+                        Text(Fmt.money(totalSum), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Teal)
                     }
                 }
             }
@@ -1014,14 +1025,19 @@ private fun QuickCalculatorTab(
                 .fillMaxWidth()
                 .height(52.dp),
             shape = RoundedCornerShape(14.dp),
-            enabled = currentValue > 0.0
+            enabled = currentValue > 0.0 || calculationHistory.isNotEmpty()
         ) {
-            Text("إنشاء فاتورة بهذا المبلغ", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            val label = if (calculationHistory.isNotEmpty()) {
+                "إنشاء فاتورة (${calculationHistory.size} بنود - ${Fmt.money(totalSum)})"
+            } else {
+                "إنشاء فاتورة بهذا المبلغ"
+            }
+            Text(label, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
 
         Spacer(Modifier.height(10.dp))
         Text(
-            "حوّل نتيجة الحساب إلى فاتورة فورية مع إمكانية الطباعة والمشاركة.",
+            "حوّل نتيجة الحساب إلى فاتورة فورية مع إمكانية الطباعة والمشاركة وحساب عدد الحبات بدقة.",
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
             fontSize = 11.sp,
@@ -1031,33 +1047,21 @@ private fun QuickCalculatorTab(
     }
 
     if (showSaveDialog) {
+        val invoiceAmount = if (calculationHistory.isNotEmpty()) totalSum else currentValue
         QuickInvoiceDialog(
-            amount = currentValue,
+            amount = invoiceAmount,
             invoiceNumber = nextInvoiceNumber,
             onDismiss = { showSaveDialog = false },
             onConfirm = { customerName, phone ->
                 val invoiceItems = if (calculationHistory.isNotEmpty()) {
                     calculationHistory.mapIndexed { index, line ->
-                        InvoiceItem(
-                            id = System.currentTimeMillis() + index,
-                            productId = null,
-                            name = line.label,
-                            unit = SaleUnit.PIECE,
-                            quantity = 1.0,
-                            unitsPerPackage = 1,
-                            unitPrice = line.amount
-                        )
+                        parseQuickCalcLine(line, index)
                     }
                 } else {
                     listOf(
-                        InvoiceItem(
-                            id = System.currentTimeMillis(),
-                            productId = null,
-                            name = "مبلغ إجمالي سريع",
-                            unit = SaleUnit.PIECE,
-                            quantity = 1.0,
-                            unitsPerPackage = 1,
-                            unitPrice = currentValue
+                        parseQuickCalcLine(
+                            QuickCalcInvoiceLine(display, currentValue),
+                            0
                         )
                     )
                 }
@@ -1075,6 +1079,47 @@ private fun QuickCalculatorTab(
             }
         )
     }
+}
+
+/**
+ * تحليل سطر الحاسبة (مثل 350 × 12 أو 420 × 12) لاستخراج عدد الحبات وسعر الحبة بدقة.
+ */
+private fun parseQuickCalcLine(line: QuickCalcInvoiceLine, index: Int): InvoiceItem {
+    val text = line.label.trim()
+    val match = Regex("""^([\d.,]+)\s*[×*]\s*([\d.,]+)$""").find(text)
+    if (match != null) {
+        val a = match.groupValues[1].replace(",", ".").toDoubleOrNull() ?: 0.0
+        val b = match.groupValues[2].replace(",", ".").toDoubleOrNull() ?: 0.0
+
+        // في التجارة بالجزائر: إما "سعر الحبة × عدد الحبات" أو "عدد الحبات × سعر الحبة"
+        val (unitPrice, pieces) = if (b > 0 && b % 1.0 == 0.0 && (a >= b || a >= 50.0)) {
+            Pair(a, b)
+        } else if (a > 0 && a % 1.0 == 0.0 && b >= 50.0) {
+            Pair(b, a)
+        } else {
+            Pair(a, b)
+        }
+
+        return InvoiceItem(
+            id = System.currentTimeMillis() + index,
+            productId = null,
+            name = text,
+            unit = SaleUnit.PIECE,
+            quantity = pieces.coerceAtLeast(1.0),
+            unitsPerPackage = 1,
+            unitPrice = unitPrice
+        )
+    }
+
+    return InvoiceItem(
+        id = System.currentTimeMillis() + index,
+        productId = null,
+        name = if (text.isBlank() || text == "0") "مبلغ مباشر" else text,
+        unit = SaleUnit.PIECE,
+        quantity = 1.0,
+        unitsPerPackage = 1,
+        unitPrice = line.amount
+    )
 }
 
 @Composable
