@@ -163,13 +163,23 @@ object InvoicePrinter {
             ) {
                 runCatching { adapter.cancelDiscovery() }
             }
+            val payload = buildThermalText(invoice, company)
             socket = openSocket(device)
             socket.outputStream.use { output ->
-                output.write(buildThermalText(invoice, company))
-                output.flush()
-                // Give the printer time to drain the buffer before the socket closes,
-                // otherwise long receipts get truncated mid-line.
-                Thread.sleep(250)
+                // نكتب على دفعات صغيرة: الطابعات الحرارية الرخيصة ذات المخزن الصغير
+                // تُسقط البيانات إذا أُرسلت في دفعة واحدة كبيرة.
+                val chunkSize = 2048
+                var offset = 0
+                while (offset < payload.size) {
+                    val length = minOf(chunkSize, payload.size - offset)
+                    output.write(payload, offset, length)
+                    output.flush()
+                    offset += length
+                    Thread.sleep(10)
+                }
+                // انتظر حتى تفرغ الطابعة مخزنها قبل إغلاق الاتصال حتى لا يُقص الإيصال ناقصاً.
+                val drainMs = (payload.size / 1024 * 20).coerceIn(700, 3500)
+                Thread.sleep(drainMs.toLong())
             }
             showToast(context, "تم إرسال الفاتورة إلى ${runCatching { device.name }.getOrNull() ?: "XP-P801"}")
             true
@@ -284,9 +294,10 @@ object InvoicePrinter {
         leader: Boolean = true
     ): ReceiptBlock {
         val valuePaint = thermalPaint(size, bold)
+        // المبالغ الكبيرة تأخذ مساحة أوسع، مع إبقاء مساحة كافية للبيان.
         val valueWidth = ceil(valuePaint.measureText(value)).toInt()
-            .coerceIn(40, CONTENT_WIDTH / 2)
-        val labelWidth = (CONTENT_WIDTH - valueWidth - 8).coerceAtLeast(40)
+            .coerceIn(40, (CONTENT_WIDTH * 3) / 4)
+        val labelWidth = (CONTENT_WIDTH - valueWidth - 8).coerceAtLeast(60)
         val labelLayout = buildLayout(label, thermalPaint(size, bold), labelWidth, Layout.Alignment.ALIGN_OPPOSITE)
         val valueLayout = buildLayout(value, valuePaint, valueWidth, Layout.Alignment.ALIGN_OPPOSITE)
         val height = max(labelLayout.height, valueLayout.height) + gap
@@ -316,42 +327,49 @@ object InvoicePrinter {
         }
     }
 
-    /** شريط الإجمالي النهائي: خلفية سوداء ونص أبيض عالي التباين. */
-    private fun totalBand(label: String, value: String): ReceiptBlock {
-        val height = 54
-        val labelPaint = thermalPaint(22f, true).apply {
-            color = Color.WHITE
-            textAlign = Paint.Align.RIGHT
+    /**
+     * إطار الإجمالي النهائي: إطار مزدوج بخط أسود عريض ونص كبير.
+     * لا نستخدم تعبئة سوداء لأن الطباعة الحرارية تخرجها غير متساوية على بعض الأجهزة.
+     */
+    private fun totalPanel(label: String, value: String): ReceiptBlock {
+        val height = 70
+        val labelPaint = thermalPaint(26f, true).apply { textAlign = Paint.Align.RIGHT }
+        val valuePaint = thermalPaint(34f, true).apply { textAlign = Paint.Align.LEFT }
+        val thin = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
         }
-        val valuePaint = thermalPaint(28f, true).apply {
-            color = Color.WHITE
-            textAlign = Paint.Align.LEFT
+        val thick = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 6f
         }
-        return ReceiptBlock(height + 6) { canvas, top ->
-            canvas.drawRoundRect(
-                RectF(0f, top.toFloat(), CONTENT_WIDTH.toFloat(), top + height.toFloat()),
-                8f, 8f,
-                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
-            )
-            canvas.drawText(label, CONTENT_WIDTH - 12f, top + 34f, labelPaint)
-            canvas.drawText(value, 12f, top + 36f, valuePaint)
+        return ReceiptBlock(height + 12) { canvas, top ->
+            val outer = RectF(3f, top + 3f, CONTENT_WIDTH - 3f, top + height - 3f)
+            canvas.drawRoundRect(outer, 10f, 10f, thin)
+            val inner = RectF(10f, top + 10f, CONTENT_WIDTH - 10f, top + height - 10f)
+            canvas.drawRoundRect(inner, 6f, 6f, thick)
+            canvas.drawText(label, CONTENT_WIDTH - 24f, top + 46f, labelPaint)
+            canvas.drawText(value, 24f, top + 49f, valuePaint)
         }
     }
 
-    /** عنوان قسم معكوس الألوان يفصل أجزاء الإيصال بوضوح. */
+    /** عنوان قسم داخل إطار أسود رفيع يفصل أجزاء الإيصال بوضوح ودون تعبئة سوداء. */
     private fun sectionBar(text: String): ReceiptBlock {
-        val height = 38
-        val paint = thermalPaint(21f, true).apply {
-            color = Color.WHITE
-            textAlign = Paint.Align.CENTER
+        val height = 46
+        val paint = thermalPaint(26f, true).apply { textAlign = Paint.Align.CENTER }
+        val frame = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
         }
-        return ReceiptBlock(height + 4) { canvas, top ->
+        return ReceiptBlock(height + 6) { canvas, top ->
             canvas.drawRoundRect(
-                RectF(0f, top.toFloat(), CONTENT_WIDTH.toFloat(), top + height.toFloat()),
-                6f, 6f,
-                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
+                RectF(2f, top + 2f, CONTENT_WIDTH - 2f, top + height - 2f),
+                8f, 8f, frame
             )
-            canvas.drawText(text, CONTENT_WIDTH / 2f, top + 26f, paint)
+            canvas.drawText(text, CONTENT_WIDTH / 2f, top + 32f, paint)
         }
     }
 
@@ -362,20 +380,20 @@ object InvoicePrinter {
 
         blocks += textBlock(
             company.name.ifBlank { "اسم الشركة" },
-            size = 33f,
+            size = 44f,
             bold = true,
             align = Layout.Alignment.ALIGN_CENTER,
-            gap = 3
+            gap = 4
         )
-        if (company.phone.isNotBlank()) blocks += centeredBlock("هاتف: ${company.phone}", size = 18f, gap = 1)
-        if (company.address.isNotBlank()) blocks += centeredBlock(company.address, size = 18f, gap = 2)
-        blocks += separatorBlock(gap = 4, thickness = 3f)
+        if (company.phone.isNotBlank()) blocks += centeredBlock("هاتف: ${company.phone}", size = 24f, gap = 2)
+        if (company.address.isNotBlank()) blocks += centeredBlock(company.address, size = 24f, gap = 3)
+        blocks += separatorBlock(gap = 6, thickness = 3f)
 
-        blocks += rowBlock("رقم الفاتورة", invoice.number, size = 23f, bold = true, gap = 4)
-        blocks += rowBlock("التاريخ", Fmt.date(invoice.dateMillis), size = 19f, gap = 3)
-        blocks += rowBlock("الوقت", clockFormat.format(Date(invoice.dateMillis)), size = 19f, gap = 4)
-        blocks += rowBlock("العميل", invoice.customerName.ifBlank { "عميل نقدي" }, size = 21f, gap = 3)
-        blocks += rowBlock("الدفع", invoice.paymentMethod.label, size = 19f, gap = 5)
+        blocks += rowBlock("رقم الفاتورة", invoice.number, size = 34f, bold = true, gap = 6)
+        blocks += rowBlock("التاريخ", Fmt.date(invoice.dateMillis), size = 24f, gap = 4)
+        blocks += rowBlock("الوقت", clockFormat.format(Date(invoice.dateMillis)), size = 24f, gap = 5)
+        blocks += rowBlock("العميل", invoice.customerName.ifBlank { "عميل نقدي" }, size = 26f, gap = 4)
+        blocks += rowBlock("الدفع", invoice.paymentMethod.label, size = 24f, gap = 7)
 
         blocks += sectionBar(if (calculator) "إيصال حساب فوري" else "فاتورة مبيعات")
 
@@ -385,53 +403,53 @@ object InvoicePrinter {
                     "مبلغ إجمالي سريع", DIRECT_AMOUNT_LABEL, "" -> "مبلغ مباشر"
                     else -> item.name
                 }
-                blocks += rowBlock("${index + 1}. $label", Fmt.money(item.lineTotal), size = 23f, bold = true, gap = 2)
+                blocks += rowBlock("${index + 1}. $label", Fmt.money(item.lineTotal), size = 30f, bold = true, gap = 3)
                 if (item.quantity > 1.0) {
                     blocks += textBlock(
                         "${Fmt.qty(item.quantity)} حبة × ${Fmt.amount(item.unitPrice)} د.ج",
-                        size = 18f,
-                        gap = 6
+                        size = 22f,
+                        gap = 8
                     )
                 }
             }
         } else {
-            blocks += rowBlock("البيان", "الإجمالي", size = 18f, bold = true, leader = false)
-            blocks += separatorBlock(gap = 6, thickness = 2f)
+            blocks += rowBlock("البيان", "الإجمالي", size = 22f, bold = true, leader = false, gap = 5)
+            blocks += separatorBlock(gap = 7, thickness = 2f)
             invoice.items.forEachIndexed { index, item ->
                 val capacity = item.unitsPerPackage.coerceAtLeast(1)
-                blocks += textBlock("${index + 1}. ${item.name.ifBlank { "منتج" }}", size = 22f, bold = true, gap = 1)
+                blocks += textBlock("${index + 1}. ${item.name.ifBlank { "منتج" }}", size = 28f, bold = true, gap = 2)
                 val quantityText = if (item.unit == SaleUnit.PACKAGE) {
                     "${Fmt.qty(item.quantity)} حزمة × $capacity = ${Fmt.qty(item.totalPieces)} حبة"
                 } else {
                     "${Fmt.qty(item.quantity)} حبة"
                 }
-                blocks += textBlock("$quantityText  ×  ${Fmt.amount(item.piecePrice)} د.ج للحبة", size = 18f, gap = 2)
-                blocks += rowBlock("الإجمالي", Fmt.money(item.lineTotal), size = 20f, bold = true, gap = 6)
+                blocks += textBlock("$quantityText  ×  ${Fmt.amount(item.piecePrice)} د.ج للحبة", size = 22f, gap = 3)
+                blocks += rowBlock("الإجمالي", Fmt.money(item.lineTotal), size = 26f, bold = true, gap = 8)
             }
         }
 
-        blocks += separatorBlock(gap = 6, thickness = 2f)
-        blocks += rowBlock("عدد البنود", invoice.items.size.toString(), size = 19f, gap = 3)
+        blocks += separatorBlock(gap = 7, thickness = 2f)
+        blocks += rowBlock("عدد البنود", invoice.items.size.toString(), size = 23f, gap = 4)
         if (!calculator) {
-            blocks += rowBlock("إجمالي الحبات", "${Fmt.qty(invoice.totalPieces)} حبة", size = 19f, gap = 3)
+            blocks += rowBlock("إجمالي الحبات", "${Fmt.qty(invoice.totalPieces)} حبة", size = 23f, gap = 4)
         }
         if (invoice.discount > 0.0) {
-            blocks += rowBlock("المجموع الفرعي", Fmt.money(invoice.subtotal), size = 20f, gap = 3)
-            blocks += rowBlock("الخصم", "- ${Fmt.money(invoice.discount)}", size = 20f, gap = 4)
+            blocks += rowBlock("المجموع الفرعي", Fmt.money(invoice.subtotal), size = 24f, gap = 4)
+            blocks += rowBlock("الخصم", "- ${Fmt.money(invoice.discount)}", size = 24f, gap = 5)
         }
-        blocks += totalBand("الإجمالي", Fmt.money(invoice.total))
+        blocks += totalPanel("الإجمالي", Fmt.money(invoice.total))
 
         if (invoice.notes.isNotBlank()) {
-            blocks += textBlock("ملاحظات: ${invoice.notes}", size = 18f, gap = 8)
+            blocks += textBlock("ملاحظات: ${invoice.notes}", size = 22f, gap = 10)
         }
-        blocks += separatorBlock(gap = 7, thickness = 2f)
+        blocks += separatorBlock(gap = 8, thickness = 2f)
         blocks += centeredBlock(
             company.footerNote.ifBlank { "شكراً لتعاملكم معنا" },
-            size = 21f,
+            size = 26f,
             bold = true,
-            gap = 4
+            gap = 5
         )
-        blocks += centeredBlock("فاتورة سريعة • ${invoice.number}", size = 15f, gap = 4)
+        blocks += centeredBlock("فاتورة سريعة • ${invoice.number}", size = 19f, gap = 5)
 
         val bitmap = renderReceipt(blocks)
         return try {

@@ -796,11 +796,21 @@ private fun QuickCartSheet(
 /** بند محسوب داخل الحاسبة، يُحوَّل إلى بند فاتورة مباشرة دون تحليل نصي. */
 private data class CalcEntry(
     val key: Long,
-    val label: String,
-    val amount: Double,
+    val baseLabel: String,
     val unitPrice: Double,
     val quantity: Double
-)
+) {
+    /** الإجمالي يُشتق دائماً من السعر × الكمية، فتبقى الشاشة مطابقة للمطبوع. */
+    val amount: Double get() = moneyRound(unitPrice * quantity)
+
+    /** بيان السطر: تعبير السعر × الكمية عند تعدّد الحبات، وإلا التسمية الأصلية. */
+    val label: String
+        get() = if (quantity > 1.0) {
+            "${formatCalcNumber(unitPrice)} × ${formatCalcNumber(quantity)}"
+        } else {
+            baseLabel
+        }
+}
 
 /** رمز داخل تعبير الحاسبة: رقم أو عملية. */
 private sealed interface CalcToken {
@@ -927,14 +937,18 @@ private fun QuickCalculatorTab(
     val hasContent = entries.isNotEmpty() || (currentValue > 0.0 && error == null)
 
     fun addEntry(label: String, amount: Double, unitPrice: Double, quantity: Double) {
-        val rounded = moneyRound(amount)
-        if (!rounded.isFinite() || rounded <= 0.0) return
+        val qty = if (quantity > 0.0 && quantity.isFinite()) quantity else 1.0
+        val price = when {
+            unitPrice > 0.0 -> moneyRound(unitPrice)
+            amount > 0.0 -> moneyRound(amount / qty)
+            else -> 0.0
+        }
+        if (!price.isFinite() || price <= 0.0) return
         entries = (entries + CalcEntry(
             key = quickKeyGenerator.incrementAndGet(),
-            label = label,
-            amount = rounded,
-            unitPrice = unitPrice,
-            quantity = quantity
+            baseLabel = label,
+            unitPrice = price,
+            quantity = qty
         )).takeLast(50)
     }
 
@@ -1321,9 +1335,13 @@ private fun QuickCalculatorTab(
         CalcEntryDialog(
             entry = entry,
             onDismiss = { editingEntry = null },
-            onConfirm = { amount ->
+            onConfirm = { price, quantity ->
                 entries = entries.map {
-                    if (it.key == entry.key) it.copy(amount = moneyRound(amount)) else it
+                    if (it.key == entry.key) {
+                        it.copy(unitPrice = moneyRound(price), quantity = quantity)
+                    } else {
+                        it
+                    }
                 }
                 editingEntry = null
             }
@@ -1654,34 +1672,117 @@ private fun CalcActionBar(
 private fun CalcEntryDialog(
     entry: CalcEntry,
     onDismiss: () -> Unit,
-    onConfirm: (Double) -> Unit
+    onConfirm: (Double, Double) -> Unit
 ) {
-    var text by remember(entry.key) { mutableStateOf(Fmt.amount(entry.amount)) }
-    var invalid by remember(entry.key) { mutableStateOf(false) }
+    var qtyText by remember(entry.key) { mutableStateOf(Fmt.qty(entry.quantity)) }
+    var priceText by remember(entry.key) { mutableStateOf(Fmt.amount(entry.unitPrice)) }
+    var totalText by remember(entry.key) { mutableStateOf(Fmt.amount(entry.amount)) }
+    var invalid by remember(entry.key) { mutableStateOf<String?>(null) }
+
+    fun recomputeTotal() {
+        val price = Fmt.parseNumber(priceText)
+        val qty = Fmt.parseNumber(qtyText)
+        if (price != null && qty != null && price >= 0.0 && qty > 0.0) {
+            totalText = Fmt.amount(moneyRound(price * qty))
+        }
+    }
+
+    val previewPrice = Fmt.parseNumber(priceText) ?: 0.0
+    val previewQty = Fmt.parseNumber(qtyText) ?: 0.0
+    val previewTotal = moneyRound(previewPrice * previewQty)
+    val previewLabel = if (previewQty > 1.0) {
+        "${formatCalcNumber(previewPrice)} × ${formatCalcNumber(previewQty)}"
+    } else {
+        entry.baseLabel
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(22.dp),
-        title = { Text("تعديل مبلغ البند", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        title = { Text("تعديل البند", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Text(entry.label, fontSize = 12.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "عدّل الكمية أو سعر الحبة، والإجمالي يتحدّث فوراً — وهذا ما يُطبَع في الفاتورة.",
+                    fontSize = 11.5.sp,
+                    color = TextMuted
+                )
                 Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = qtyText,
+                        onValueChange = {
+                            qtyText = it
+                            invalid = null
+                            recomputeTotal()
+                        },
+                        label = { Text("الكمية") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    OutlinedTextField(
+                        value = priceText,
+                        onValueChange = {
+                            priceText = it
+                            invalid = null
+                            recomputeTotal()
+                        },
+                        label = { Text("سعر الحبة") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it; invalid = false },
-                    label = { Text("المبلغ (د.ج)") },
+                    value = totalText,
+                    onValueChange = { typed ->
+                        totalText = typed
+                        invalid = null
+                        // كتابة الإجمالي مباشرةً تُعيد توزيعه على الكمية للحفاظ على سعر حبة صحيح.
+                        val total = Fmt.parseNumber(typed)
+                        val qty = Fmt.parseNumber(qtyText)
+                        if (total != null && qty != null && qty > 0.0) {
+                            priceText = Fmt.amount(moneyRound(total / qty))
+                        }
+                    },
+                    label = { Text("الإجمالي (د.ج)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    isError = invalid,
+                    isError = invalid != null,
                     shape = RoundedCornerShape(12.dp)
                 )
+                Spacer(Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(TealSoft)
+                        .padding(horizontal = 12.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        "سطر الفاتورة: $previewLabel = ${Fmt.money(previewTotal)}",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TealDark
+                    )
+                }
+                if (invalid != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(invalid!!, fontSize = 11.sp, color = Danger)
+                }
             }
         },
         confirmButton = {
             TextButton(onClick = {
-                val value = Fmt.parseNumber(text)
-                if (value == null || value <= 0.0) invalid = true else onConfirm(value)
+                val price = Fmt.parseNumber(priceText)
+                val qty = Fmt.parseNumber(qtyText)
+                when {
+                    qty == null || qty <= 0.0 -> invalid = "أدخل كمية أكبر من صفر"
+                    price == null || price <= 0.0 -> invalid = "أدخل سعراً أكبر من صفر"
+                    else -> onConfirm(price, qty)
+                }
             }) {
                 Text("حفظ", fontWeight = FontWeight.Bold)
             }
