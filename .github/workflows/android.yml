@@ -39,23 +39,23 @@ jobs:
       - name: Prepare APK file
         run: |
           mkdir -p release-apk
-          cp app/build/outputs/apk/debug/app-debug.apk release-apk/fatoura-saria-v2.0.apk
+          cp app/build/outputs/apk/debug/app-debug.apk release-apk/fatoura-saria-v2.1.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fatoura-saria-v2.0
-          path: release-apk/fatoura-saria-v2.0.apk
+          name: fatoura-saria-v2.1
+          path: release-apk/fatoura-saria-v2.1.apk
           if-no-files-found: error
 
       - name: Update GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
-          tag_name: v2.0
-          name: "فاتورة سريعة v2.0"
-          body: "تطبيق فاتورة سريعة v2.0 للأندرويد - إدارة الفواتير والمبيعات، دعم الحزم المتعددة، والطباعة."
-          files: release-apk/fatoura-saria-v2.0.apk
+          tag_name: v2.1
+          name: "فاتورة سريعة v2.1"
+          body: "تطبيق فاتورة سريعة v2.1 — حاسبة أدق وأسرع (تعبيرات متسلسلة بأولوية الضرب والقسمة، إضافة المبلغ للفاتورة)، طباعة حرارية محسّنة على XP-P801 (اتصال بديل، قص الورق، إيصال أوضح)، وفاتورة PDF أفضل لبنود الحاسبة."
+          files: release-apk/fatoura-saria-v2.1.apk
           draft: false
           prerelease: false
         env:

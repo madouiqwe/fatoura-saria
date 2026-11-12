@@ -28,6 +28,22 @@ enum class PaymentMethod {
         }
 }
 
+/** نوع الفاتورة: مبيعات أصناف عادية، أو إيصال من الحاسبة السريعة. */
+@Serializable
+enum class InvoiceKind {
+    SALE,
+    CALCULATOR
+}
+
+/** التسمية المعتمدة لأي سطر مبلغ مباشر أُضيف من الحاسبة دون عملية حسابية. */
+const val DIRECT_AMOUNT_LABEL = "مبلغ مباشر"
+
+/** تسمية قديمة كانت تُحفظ في الإصدارات السابقة؛ تُدعم للقراءة فقط. */
+private const val LEGACY_DIRECT_AMOUNT_LABEL = "مبلغ إجمالي سريع"
+
+/** يطابق تعبيراً حسابياً بسيطاً مثل «350 × 12» أو «5+3». */
+private val CALC_EXPRESSION = Regex("""^\s*[\d.,]+\s*[+\-×÷*/]\s*[\d.,]+\s*$""")
+
 @Serializable
 enum class InvoiceStatus {
     PAID,
@@ -114,6 +130,7 @@ data class Invoice(
     val items: List<InvoiceItem> = emptyList(),
     val discount: Double = 0.0,
     val notes: String = "",
+    val kind: InvoiceKind = InvoiceKind.SALE,
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val subtotal: Double
@@ -124,6 +141,25 @@ data class Invoice(
 
     val totalPieces: Double
         get() = items.sumOf { it.totalPieces }
+
+    /**
+     * هل هذه فاتورة حاسبة؟ النوع الصريح هو المصدر الأساسي، ومع ذلك تُستنتج
+     * الفواتير القديمة المحفوظة قبل إضافة حقل [kind] من شكل بنودها.
+     */
+    val isCalculator: Boolean
+        get() = kind == InvoiceKind.CALCULATOR || matchesLegacyCalculatorShape()
+
+    private fun matchesLegacyCalculatorShape(): Boolean {
+        if (items.isEmpty()) return false
+        if (items.any { it.productId != null }) return false
+        return items.all { item ->
+            val name = item.name.trim()
+            name.isEmpty() ||
+                name == DIRECT_AMOUNT_LABEL ||
+                name == LEGACY_DIRECT_AMOUNT_LABEL ||
+                CALC_EXPRESSION.matches(name)
+        }
+    }
 }
 
 @Serializable

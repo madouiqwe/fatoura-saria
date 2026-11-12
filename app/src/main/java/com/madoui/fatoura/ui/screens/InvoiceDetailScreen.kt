@@ -90,6 +90,7 @@ fun InvoiceDetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showDelete by remember { mutableStateOf(false) }
+    var isPrinting by remember { mutableStateOf(false) }
 
     if (invoice == null) {
         Scaffold(
@@ -104,13 +105,14 @@ fun InvoiceDetailScreen(
     }
 
     fun printDirect() {
+        if (isPrinting) return
+        isPrinting = true
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { InvoicePrinter.printDirectThermal(context, invoice, settings) }
+            val printed = withContext(Dispatchers.IO) {
+                runCatching { InvoicePrinter.printDirectThermal(context, invoice, settings) }.getOrDefault(false)
             }
-            result.onFailure {
-                Toast.makeText(context, "تعذر الطباعة: ${it.message}", Toast.LENGTH_LONG).show()
-            }
+            isPrinting = false
+            if (printed) Toast.makeText(context, "تم إرسال الفاتورة للطابعة ✓", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -156,10 +158,15 @@ fun InvoiceDetailScreen(
             Spacer(Modifier.height(14.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { requestPrint() }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) {
+                Button(
+                    onClick = { requestPrint() },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isPrinting
+                ) {
                     Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("طباعة XP-P801", fontWeight = FontWeight.Bold)
+                    Text(if (isPrinting) "جارِ الطباعة..." else "طباعة XP-P801", fontWeight = FontWeight.Bold)
                 }
                 Button(
                     onClick = {
@@ -231,16 +238,9 @@ fun InvoiceDetailScreen(
     }
 }
 
-private fun Invoice.isCalculatorQuickInvoice(): Boolean {
-    if (items.isEmpty() || items.any { it.productId != null }) return false
-    return items.all { item ->
-        item.name == "مبلغ إجمالي سريع" || item.name.any { it in "+-×÷*/" }
-    }
-}
-
 @Composable
 private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
-    val calculatorInvoice = invoice.isCalculatorQuickInvoice()
+    val calculatorInvoice = invoice.isCalculator
     val orderedItems = if (calculatorInvoice) {
         invoice.items
     } else {

@@ -67,8 +67,10 @@ import androidx.compose.material.icons.filled.Print
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import com.madoui.fatoura.data.CompanySettings
+import com.madoui.fatoura.data.DIRECT_AMOUNT_LABEL
 import com.madoui.fatoura.data.Invoice
 import com.madoui.fatoura.data.InvoiceItem
+import com.madoui.fatoura.data.InvoiceKind
 import com.madoui.fatoura.data.InvoiceStatus
 import com.madoui.fatoura.data.PaymentMethod
 import com.madoui.fatoura.data.Product
@@ -97,11 +99,6 @@ private enum class QuickTab(val label: String) {
     PRODUCTS("أصناف سريعة"),
     CALCULATOR("حاسبة")
 }
-
-private data class QuickCalcInvoiceLine(
-    val label: String,
-    val amount: Double
-)
 
 /** سطر داخل سلة البيع السريع. */
 private data class QuickLine(
@@ -788,6 +785,92 @@ private fun QuickCartSheet(
 
 // ------------------------------------------------------------------ الحاسبة
 
+/** بند محسوب داخل الحاسبة. يُحوَّل إلى بند فاتورة مباشرة دون أي تحليل نصي. */
+private data class CalcEntry(
+    val key: Long,
+    val label: String,
+    val amount: Double,
+    val unitPrice: Double,
+    val quantity: Double
+)
+
+/** رمز داخل تعبير الحاسبة: رقم أو عملية. */
+private sealed interface CalcToken {
+    data class Num(val value: Double) : CalcToken
+    data class Op(val symbol: Char) : CalcToken
+}
+
+private fun formatCalcNumber(value: Double): String =
+    if (!value.isFinite()) "0" else Fmt.amount(value)
+
+private fun applyCalcOp(left: Double, right: Double, op: Char): Double? = when (op) {
+    '+' -> left + right
+    '-' -> left - right
+    '×', '*' -> left * right
+    '÷', '/' -> if (right == 0.0) null else left / right
+    else -> right
+}
+
+/** حساب التعبير مع احترام أولوية الضرب والقسمة. يعيد null عند القسمة على صفر. */
+private fun evaluateTokens(tokens: List<CalcToken>): Double? {
+    if (tokens.isEmpty()) return null
+    val numbers = mutableListOf<Double>()
+    val operators = mutableListOf<Char>()
+    tokens.forEach { token ->
+        when (token) {
+            is CalcToken.Num -> numbers.add(token.value)
+            is CalcToken.Op -> operators.add(token.symbol)
+        }
+    }
+    if (numbers.size != operators.size + 1) return null
+
+    var index = 0
+    while (index < operators.size) {
+        val op = operators[index]
+        if (op == '×' || op == '*' || op == '÷' || op == '/') {
+            val folded = applyCalcOp(numbers[index], numbers[index + 1], op) ?: return null
+            numbers[index] = folded
+            numbers.removeAt(index + 1)
+            operators.removeAt(index)
+        } else {
+            index++
+        }
+    }
+
+    var total = numbers.first()
+    operators.forEachIndexed { position, op ->
+        total = applyCalcOp(total, numbers[position + 1], op) ?: return null
+    }
+    return total
+}
+
+private fun tokensLabel(tokens: List<CalcToken>): String = tokens.joinToString(" ") { token ->
+    when (token) {
+        is CalcToken.Num -> formatCalcNumber(token.value)
+        is CalcToken.Op -> token.symbol.toString()
+    }
+}
+
+/**
+ * يستخرج سعر الحبة وعدد الحبات من تعبير الضرب البسيط «سعر × عدد».
+ * التعبيرات الأخرى تُحسب كسطر مبلغ واحد بلا كمية.
+ */
+private fun priceAndQuantity(tokens: List<CalcToken>, amount: Double): Pair<Double, Double> {
+    val simpleProduct = tokens.size == 3 &&
+        tokens[0] is CalcToken.Num &&
+        tokens[1] is CalcToken.Op &&
+        tokens[2] is CalcToken.Num &&
+        (tokens[1] as CalcToken.Op).symbol.let { it == '×' || it == '*' }
+    if (simpleProduct) {
+        val price = (tokens[0] as CalcToken.Num).value
+        val count = (tokens[2] as CalcToken.Num).value
+        if (price > 0.0 && count > 0.0 && count % 1.0 == 0.0 && count <= 100_000.0) {
+            return price to count
+        }
+    }
+    return amount to 1.0
+}
+
 @Composable
 private fun QuickCalculatorTab(
     nextInvoiceNumber: String,
@@ -800,36 +883,72 @@ private fun QuickCalculatorTab(
     val scope = rememberCoroutineScope()
 
     var display by remember { mutableStateOf("0") }
-    var accumulator by remember { mutableStateOf<Double?>(null) }
-    var pendingOp by remember { mutableStateOf<Char?>(null) }
+    var tokens by remember { mutableStateOf<List<CalcToken>>(emptyList()) }
     var resetOnNext by remember { mutableStateOf(false) }
+    var evaluated by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var entries by remember { mutableStateOf<List<CalcEntry>>(emptyList()) }
     var showSaveDialog by remember { mutableStateOf(false) }
-    var calculationHistory by remember { mutableStateOf<List<QuickCalcInvoiceLine>>(emptyList()) }
     var isPrinting by remember { mutableStateOf(false) }
 
-    val currentValue = display.toDoubleOrNull() ?: 0.0
-    val totalSum = calculationHistory.sumOf { it.amount }
-    val calcTotalPieces = calculationHistory.sumOf { parseQuickCalcLine(it, 0).totalPieces }
-
-    fun addCalculationToHistory(expression: String, value: Double) {
-        if (value.isNaN() || value.isInfinite()) return
-        val item = QuickCalcInvoiceLine(label = expression, amount = value)
-        calculationHistory = (calculationHistory + item).takeLast(25)
+    // ترقيم محلي متزايد حتى لا يتكرر رقم الفاتورة عند الطباعة والحفظ المتتالي.
+    val baseNumber = remember { nextInvoiceNumber.toLongOrNull() ?: 0L }
+    var numberOffset by remember { mutableStateOf(0L) }
+    fun nextNumber(): String {
+        val number = (baseNumber + numberOffset).toString()
+        numberOffset += 1
+        return number
     }
 
-    fun removeCalculation(index: Int) {
-        calculationHistory = calculationHistory.filterIndexed { i, _ -> i != index }
+    val currentValue = display.toDoubleOrNull() ?: 0.0
+    val entriesTotal = entries.sumOf { it.amount }
+    val entriesPieces = entries.sumOf { it.quantity }
+    val hasContent = entries.isNotEmpty() || (currentValue > 0.0 && error == null)
+
+    fun addEntry(label: String, amount: Double, unitPrice: Double, quantity: Double) {
+        if (!amount.isFinite() || amount <= 0.0) return
+        entries = (entries + CalcEntry(
+            key = quickKeyGenerator.incrementAndGet(),
+            label = label,
+            amount = amount,
+            unitPrice = unitPrice,
+            quantity = quantity
+        )).takeLast(50)
+    }
+
+    fun resetEntry() {
+        display = "0"
+        tokens = emptyList()
+        resetOnNext = false
+        evaluated = false
+        error = null
+    }
+
+    fun clearAll() {
+        resetEntry()
+        entries = emptyList()
     }
 
     fun inputDigit(digit: String) {
+        if (error != null) resetEntry()
+        if (evaluated) {
+            tokens = emptyList()
+            evaluated = false
+        }
         display = when {
             resetOnNext || display == "0" -> digit
+            display.length >= 12 -> display
             else -> display + digit
         }
         resetOnNext = false
     }
 
     fun inputDot() {
+        if (error != null) resetEntry()
+        if (evaluated) {
+            tokens = emptyList()
+            evaluated = false
+        }
         display = when {
             resetOnNext -> "0."
             !display.contains('.') -> "$display."
@@ -838,110 +957,150 @@ private fun QuickCalculatorTab(
         resetOnNext = false
     }
 
-    fun applyOperation(left: Double, right: Double, op: Char): Double = when (op) {
-        '+' -> left + right
-        '-' -> left - right
-        '×' -> left * right
-        '÷' -> if (right == 0.0) 0.0 else left / right
-        else -> right
+    fun backspace() {
+        if (error != null) {
+            resetEntry()
+            return
+        }
+        if (evaluated || resetOnNext) {
+            resetEntry()
+            return
+        }
+        display = if (display.length <= 1 || (display.length == 2 && display.startsWith("-"))) "0" else display.dropLast(1)
     }
 
     fun chooseOperation(op: Char) {
+        if (error != null) return
         val value = display.toDoubleOrNull() ?: 0.0
-        val previous = accumulator
-        val previousOp = pendingOp
-        if (previous != null && previousOp != null && !resetOnNext) {
-            val result = applyOperation(previous, value, previousOp)
-            accumulator = result
-            display = formatResult(result)
-            addCalculationToHistory("${formatResult(previous)} $previousOp ${formatResult(value)}", result)
-        } else {
-            accumulator = value
+        tokens = when {
+            tokens.isEmpty() -> listOf(CalcToken.Num(value), CalcToken.Op(op))
+            tokens.last() is CalcToken.Op -> tokens.dropLast(1) + CalcToken.Op(op)
+            else -> tokens + CalcToken.Op(op)
         }
-        pendingOp = op
+        val running = evaluateTokens(tokens.dropLast(1))
+        if (running == null) {
+            error = "لا يمكن القسمة على صفر"
+            tokens = emptyList()
+            display = "0"
+            resetOnNext = true
+            return
+        }
+        display = formatCalcNumber(running)
         resetOnNext = true
+        evaluated = false
     }
 
     fun equals() {
+        if (error != null) return
         val value = display.toDoubleOrNull() ?: 0.0
-        val previous = accumulator
-        val op = pendingOp
-        if (previous != null && op != null) {
-            val result = applyOperation(previous, value, op)
-            display = formatResult(result)
-            addCalculationToHistory("${formatResult(previous)} $op ${formatResult(value)}", result)
+        val full = if (tokens.isEmpty()) listOf(CalcToken.Num(value)) else tokens + CalcToken.Num(value)
+        val result = evaluateTokens(full)
+        if (result == null) {
+            error = "لا يمكن القسمة على صفر"
+            tokens = emptyList()
+            display = "0"
+            resetOnNext = true
+            return
         }
-        accumulator = null
-        pendingOp = null
+        val label = if (full.size == 1) DIRECT_AMOUNT_LABEL else tokensLabel(full)
+        val (price, quantity) = priceAndQuantity(full, result)
+        addEntry(label, result, price, quantity)
+        display = formatCalcNumber(result)
+        tokens = emptyList()
         resetOnNext = true
+        evaluated = true
     }
 
     fun quickMultiply(count: Int) {
+        if (error != null) return
         val price = display.toDoubleOrNull() ?: 0.0
-        if (price > 0.0) {
-            val result = price * count
-            display = formatResult(result)
-            addCalculationToHistory("${formatResult(price)} × $count", result)
-            accumulator = null
-            pendingOp = null
-            resetOnNext = true
-        }
+        if (price <= 0.0) return
+        val result = price * count
+        addEntry(
+            label = "${formatCalcNumber(price)} × $count",
+            amount = result,
+            unitPrice = price,
+            quantity = count.toDouble()
+        )
+        display = formatCalcNumber(result)
+        tokens = emptyList()
+        resetOnNext = true
+        evaluated = true
     }
 
-    fun clear() {
-        display = "0"
-        accumulator = null
-        pendingOp = null
-        resetOnNext = false
-        calculationHistory = emptyList()
+    fun addCurrentAmount() {
+        if (error != null) return
+        val value = display.toDoubleOrNull() ?: 0.0
+        if (value <= 0.0) return
+        addEntry(DIRECT_AMOUNT_LABEL, value, value, 1.0)
+        resetEntry()
     }
 
     fun buildInvoice(customerName: String = "عميل نقدي", phone: String = ""): Invoice {
-        val invoiceItems = if (calculationHistory.isNotEmpty()) {
-            calculationHistory.mapIndexed { index, line ->
-                parseQuickCalcLine(line, index)
+        val items = when {
+            entries.isNotEmpty() -> entries.map { entry ->
+                InvoiceItem(
+                    id = entry.key,
+                    productId = null,
+                    name = entry.label,
+                    unit = SaleUnit.PIECE,
+                    quantity = entry.quantity,
+                    unitsPerPackage = 1,
+                    unitPrice = entry.unitPrice
+                )
             }
-        } else {
-            listOf(
-                parseQuickCalcLine(
-                    QuickCalcInvoiceLine(display, currentValue),
-                    0
+            currentValue > 0.0 -> listOf(
+                InvoiceItem(
+                    id = quickKeyGenerator.incrementAndGet(),
+                    productId = null,
+                    name = DIRECT_AMOUNT_LABEL,
+                    unit = SaleUnit.PIECE,
+                    quantity = 1.0,
+                    unitsPerPackage = 1,
+                    unitPrice = currentValue
                 )
             )
+            else -> emptyList()
         }
-
         return Invoice(
-            number = nextInvoiceNumber,
+            number = nextNumber(),
             customerName = customerName.ifBlank { "عميل نقدي" },
             customerPhone = phone,
             paymentMethod = PaymentMethod.CASH,
             status = InvoiceStatus.PAID,
-            items = invoiceItems
+            kind = InvoiceKind.CALCULATOR,
+            items = items
         )
     }
 
-    fun instantPrint() {
-        if (currentValue <= 0.0 && calculationHistory.isEmpty()) return
+    fun saveAndPrint() {
+        if (!hasContent || isPrinting) return
         val invoice = buildInvoice()
         val invoiceId = onSaveInvoice(invoice)
         isPrinting = true
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { InvoicePrinter.printDirectThermal(context, invoice.copy(id = invoiceId), settings) }
+            val printed = withContext(Dispatchers.IO) {
+                runCatching {
+                    InvoicePrinter.printDirectThermal(context, invoice.copy(id = invoiceId), settings)
+                }.getOrDefault(false)
             }
             isPrinting = false
-            result.onSuccess {
-                Toast.makeText(context, "تم الحفظ والطباعة فوراً بنجاح!", Toast.LENGTH_SHORT).show()
-                clear()
-            }.onFailure {
-                Toast.makeText(context, "تم الحفظ (تعذر الاتصال بالطابعة: ${it.message})", Toast.LENGTH_LONG).show()
+            if (printed) {
+                Toast.makeText(context, "تم الحفظ والطباعة على XP-P801 ✓", Toast.LENGTH_SHORT).show()
+                clearAll()
+            } else {
+                Toast.makeText(
+                    context,
+                    "حُفظت الفاتورة ${invoice.number}، وتُعيد الطباعة من شاشة الفاتورة.",
+                    Toast.LENGTH_LONG
+                ).show()
                 onSaved(invoiceId)
             }
         }
     }
 
-    fun instantSave() {
-        if (currentValue <= 0.0 && calculationHistory.isEmpty()) return
+    fun saveOnly() {
+        if (!hasContent) return
         val invoice = buildInvoice()
         val invoiceId = onSaveInvoice(invoice)
         Toast.makeText(context, "تم حفظ الفاتورة رقم ${invoice.number}", Toast.LENGTH_SHORT).show()
@@ -975,23 +1134,38 @@ private fun QuickCalculatorTab(
                         Text("حاسبة سريعة فورية", fontSize = 11.sp, color = Amber, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.weight(1f))
-                    if (calculationHistory.isNotEmpty()) {
+                    if (entries.isNotEmpty()) {
                         Text(
-                            "${calculationHistory.size} بنود | ${Fmt.qty(calcTotalPieces)} حبة",
+                            "${entries.size} بنود | ${Fmt.qty(entriesPieces)} حبة",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = TealDark
                         )
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    when {
+                        error != null -> error.orEmpty()
+                        tokens.isNotEmpty() -> tokensLabel(tokens) + " …"
+                        else -> "اكتب: سعر الحبة × عدد الحبات ثم ="
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    fontSize = 12.sp,
+                    color = if (error != null) MaterialTheme.colorScheme.error else TextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End
+                )
+                Spacer(Modifier.height(4.dp))
                 Text(
                     display,
                     modifier = Modifier.fillMaxWidth(),
-                    fontSize = 38.sp,
+                    fontSize = if (display.length > 9) 28.sp else 38.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextPrimary,
+                    color = if (error != null) MaterialTheme.colorScheme.error else TextPrimary,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.End
                 )
                 Spacer(Modifier.height(4.dp))
@@ -1001,9 +1175,9 @@ private fun QuickCalculatorTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(Fmt.money(currentValue), fontSize = 13.sp, color = Teal, fontWeight = FontWeight.SemiBold)
-                    if (calculationHistory.isNotEmpty()) {
+                    if (entries.isNotEmpty()) {
                         Text(
-                            "المجموع الكلي: ${Fmt.money(totalSum)}",
+                            "المجموع الكلي: ${Fmt.money(entriesTotal)}",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = TealDark
@@ -1015,7 +1189,7 @@ private fun QuickCalculatorTab(
 
         Spacer(Modifier.height(14.dp))
 
-        if (calculationHistory.isNotEmpty()) {
+        if (entries.isNotEmpty()) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -1034,21 +1208,20 @@ private fun QuickCalculatorTab(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "بنود الفاتورة الحالية (دون أرقام ترتيب)",
+                            "بنود الفاتورة الحالية",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary
                         )
                         TextButton(
-                            onClick = { clear() },
+                            onClick = { clearAll() },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                         ) {
                             Text("مسح الكل", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                         }
                     }
 
-                    calculationHistory.forEachIndexed { idx, line ->
-                        val parsed = parseQuickCalcLine(line, 0)
+                    entries.forEach { entry ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1059,30 +1232,30 @@ private fun QuickCalculatorTab(
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(
-                                    line.label,
+                                    entry.label,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = TextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                if (parsed.quantity > 1.0) {
+                                if (entry.quantity > 1.0) {
                                     Text(
-                                        "${Fmt.qty(parsed.quantity)} حبة × ${Fmt.amount(parsed.unitPrice)} د.ج",
+                                        "${Fmt.qty(entry.quantity)} حبة × ${Fmt.amount(entry.unitPrice)} د.ج",
                                         fontSize = 10.sp,
                                         color = TealDark
                                     )
                                 }
                             }
                             Text(
-                                Fmt.money(line.amount),
+                                Fmt.money(entry.amount),
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TealDark
                             )
                             Spacer(Modifier.width(6.dp))
                             IconButton(
-                                onClick = { removeCalculation(idx) },
+                                onClick = { entries = entries.filterNot { it.key == entry.key } },
                                 modifier = Modifier.size(26.dp)
                             ) {
                                 Icon(
@@ -1101,15 +1274,19 @@ private fun QuickCalculatorTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("إجمالي عدد الحبات: ${Fmt.qty(calcTotalPieces)} حبة", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
-                        Text(Fmt.money(totalSum), fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Teal)
+                        Text(
+                            "إجمالي الحبات: ${Fmt.qty(entriesPieces)} حبة",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextMuted
+                        )
+                        Text(Fmt.money(entriesTotal), fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Teal)
                     }
                 }
             }
             Spacer(Modifier.height(12.dp))
         }
 
-        // شريط مضاعفات الحبات السريع لتسريع الإدخال
         Text("مضاعفات سريعة للحبات:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
         Spacer(Modifier.height(6.dp))
         Row(
@@ -1159,9 +1336,9 @@ private fun QuickCalculatorTab(
                         isAccent = key == "=",
                         onClick = {
                             when (key) {
-                                "C" -> clear()
-                                "⌫" -> display = if (display.length <= 1) "0" else display.dropLast(1)
-                                "%" -> display = formatResult((display.toDoubleOrNull() ?: 0.0) / 100.0)
+                                "C" -> resetEntry()
+                                "⌫" -> backspace()
+                                "%" -> display = formatCalcNumber((display.toDoubleOrNull() ?: 0.0) / 100.0)
                                 "÷" -> chooseOperation('÷')
                                 "×" -> chooseOperation('×')
                                 "−" -> chooseOperation('-')
@@ -1179,11 +1356,8 @@ private fun QuickCalculatorTab(
 
         Spacer(Modifier.height(10.dp))
 
-        val hasContent = currentValue > 0.0 || calculationHistory.isNotEmpty()
-
-        // 1. زر الطباعة الفورية المباشرة (نقرة واحدة)
         Button(
-            onClick = { instantPrint() },
+            onClick = { saveAndPrint() },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(54.dp),
@@ -1205,13 +1379,27 @@ private fun QuickCalculatorTab(
 
         Spacer(Modifier.height(8.dp))
 
-        // 2. شريط الأزرار السريعة الإضافية
+        androidx.compose.material3.OutlinedButton(
+            onClick = { addCurrentAmount() },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(46.dp),
+            shape = RoundedCornerShape(12.dp),
+            enabled = currentValue > 0.0 && error == null
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("إضافة المبلغ الحالي إلى الفاتورة", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        }
+
+        Spacer(Modifier.height(8.dp))
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Button(
-                onClick = { instantSave() },
+                onClick = { saveOnly() },
                 modifier = Modifier
                     .weight(1f)
                     .height(48.dp),
@@ -1239,10 +1427,10 @@ private fun QuickCalculatorTab(
     }
 
     if (showSaveDialog) {
-        val invoiceAmount = if (calculationHistory.isNotEmpty()) totalSum else currentValue
+        val invoiceAmount = if (entries.isNotEmpty()) entriesTotal else currentValue
         QuickInvoiceDialog(
             amount = invoiceAmount,
-            invoiceNumber = nextInvoiceNumber,
+            invoiceNumber = (baseNumber + numberOffset).toString(),
             onDismiss = { showSaveDialog = false },
             onConfirm = { customerName, phone ->
                 val invoice = buildInvoice(customerName, phone)
@@ -1251,47 +1439,6 @@ private fun QuickCalculatorTab(
             }
         )
     }
-}
-
-/**
- * تحليل سطر الحاسبة (مثل 350 × 12 أو 420 × 12) لاستخراج عدد الحبات وسعر الحبة بدقة.
- */
-private fun parseQuickCalcLine(line: QuickCalcInvoiceLine, index: Int): InvoiceItem {
-    val text = line.label.trim()
-    val match = Regex("""^([\d.,]+)\s*[×*]\s*([\d.,]+)$""").find(text)
-    if (match != null) {
-        val a = match.groupValues[1].replace(",", ".").toDoubleOrNull() ?: 0.0
-        val b = match.groupValues[2].replace(",", ".").toDoubleOrNull() ?: 0.0
-
-        // في التجارة بالجزائر: إما "سعر الحبة × عدد الحبات" أو "عدد الحبات × سعر الحبة"
-        val (unitPrice, pieces) = if (b > 0 && b % 1.0 == 0.0 && (a >= b || a >= 50.0)) {
-            Pair(a, b)
-        } else if (a > 0 && a % 1.0 == 0.0 && b >= 50.0) {
-            Pair(b, a)
-        } else {
-            Pair(a, b)
-        }
-
-        return InvoiceItem(
-            id = System.currentTimeMillis() + index,
-            productId = null,
-            name = text,
-            unit = SaleUnit.PIECE,
-            quantity = pieces.coerceAtLeast(1.0),
-            unitsPerPackage = 1,
-            unitPrice = unitPrice
-        )
-    }
-
-    return InvoiceItem(
-        id = System.currentTimeMillis() + index,
-        productId = null,
-        name = if (text.isBlank() || text == "0") "مبلغ مباشر" else text,
-        unit = SaleUnit.PIECE,
-        quantity = 1.0,
-        unitsPerPackage = 1,
-        unitPrice = line.amount
-    )
 }
 
 @Composable

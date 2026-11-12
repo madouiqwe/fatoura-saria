@@ -10,6 +10,7 @@ import android.graphics.pdf.PdfDocument
 import android.text.TextPaint
 import android.text.TextUtils
 import com.madoui.fatoura.data.CompanySettings
+import com.madoui.fatoura.data.DIRECT_AMOUNT_LABEL
 import com.madoui.fatoura.data.Invoice
 import com.madoui.fatoura.data.InvoiceItem
 import com.madoui.fatoura.data.InvoiceStatus
@@ -42,13 +43,17 @@ object InvoicePdf {
     fun create(context: Context, invoice: Invoice, company: CompanySettings): File {
         val document = PdfDocument()
         val writer = PageWriter(document)
-        val isCalculator = invoice.isCalculatorQuickInvoice()
+        val isCalculator = invoice.isCalculator
         drawHeader(writer, invoice, company, isCalculator)
 
         var y = drawMeta(writer, invoice, 132f, isCalculator)
         y = drawTableHeader(writer, y, isCalculator)
         invoice.items.forEachIndexed { index, item ->
-            val rowHeight = if (isCalculator) 30f else if (item.unit == SaleUnit.PACKAGE) 36f else 30f
+            val rowHeight = when {
+                isCalculator -> if (item.quantity > 1.0) 36f else 30f
+                item.unit == SaleUnit.PACKAGE -> 36f
+                else -> 30f
+            }
             if (y + rowHeight > PAGE_HEIGHT - 130f) {
                 writer.finishPage()
                 writer.startPage()
@@ -74,13 +79,6 @@ object InvoicePdf {
         FileOutputStream(file).use { document.writeTo(it) }
         document.close()
         return file
-    }
-
-    private fun Invoice.isCalculatorQuickInvoice(): Boolean {
-        if (items.isEmpty() || items.any { it.productId != null }) return false
-        return items.all { item ->
-            item.name == "مبلغ إجمالي سريع" || item.name.any { it in "+-×÷*/" }
-        }
     }
 
     private fun drawHeader(writer: PageWriter, invoice: Invoice, company: CompanySettings, isCalculator: Boolean) {
@@ -198,10 +196,23 @@ object InvoicePdf {
         if (index % 2 == 1) canvas.drawRect(RectF(left, top, right, bottom), Paint().apply { color = COLOR_ROW_ALT })
         val namePaint = textPaint(9f, COLOR_TEXT, bold = true).apply { textAlign = Paint.Align.RIGHT }
         val amountPaint = textPaint(9.5f, COLOR_TEAL_DARK, bold = true).apply { textAlign = Paint.Align.CENTER }
-        val name = if (item.name == "مبلغ إجمالي سريع") "مبلغ مباشر" else item.name
-        val lineLabel = name
-        canvas.drawText(ellipsize(lineLabel, namePaint, 320f), right - 12f, top + height / 2f + 3f, namePaint)
-        canvas.drawText(Fmt.money(item.lineTotal), left + 55f, top + height / 2f + 3f, amountPaint)
+        val subPaint = textPaint(7.5f, COLOR_MUTED).apply { textAlign = Paint.Align.RIGHT }
+        val lineLabel = when (item.name.trim()) {
+            "مبلغ إجمالي سريع", DIRECT_AMOUNT_LABEL, "" -> "مبلغ مباشر"
+            else -> item.name
+        }
+        val hasBreakdown = item.quantity > 1.0
+        val amountY = if (hasBreakdown) top + 16f else top + height / 2f + 3f
+        canvas.drawText(ellipsize(lineLabel, namePaint, 300f), right - 12f, amountY, namePaint)
+        if (hasBreakdown) {
+            canvas.drawText(
+                "${Fmt.qty(item.quantity)} حبة × ${Fmt.amount(item.unitPrice)} د.ج",
+                right - 12f,
+                top + 28f,
+                subPaint
+            )
+        }
+        canvas.drawText(Fmt.money(item.lineTotal), left + 55f, amountY, amountPaint)
         canvas.drawLine(left, bottom, right, bottom, Paint().apply { color = COLOR_LINE; strokeWidth = 0.8f })
         return bottom
     }
@@ -241,8 +252,13 @@ object InvoicePdf {
         var y = startY + 8f
         val labelPaint = textPaint(9f, COLOR_MUTED).apply { textAlign = Paint.Align.RIGHT }
         val valuePaint = textPaint(9.5f, COLOR_TEXT, bold = true).apply { textAlign = Paint.Align.RIGHT }
-        canvas.drawText("إجمالي عدد القطع", right - 100f, y, labelPaint)
-        canvas.drawText("${Fmt.qty(invoice.totalPieces)} حبة", right - 8f, y, valuePaint)
+        if (invoice.isCalculator) {
+            canvas.drawText("عدد العمليات", right - 100f, y, labelPaint)
+            canvas.drawText("${invoice.items.size}", right - 8f, y, valuePaint)
+        } else {
+            canvas.drawText("إجمالي عدد القطع", right - 100f, y, labelPaint)
+            canvas.drawText("${Fmt.qty(invoice.totalPieces)} حبة", right - 8f, y, valuePaint)
+        }
         y += 17f
         canvas.drawText("المجموع الفرعي", right - 100f, y, labelPaint)
         canvas.drawText(Fmt.money(invoice.subtotal), right - 8f, y, valuePaint)
