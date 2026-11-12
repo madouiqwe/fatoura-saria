@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
@@ -51,10 +52,9 @@ object InvoicePrinter {
     private const val THERMAL_PRINTER_UUID = "00001101-0000-1000-8000-00805F9B34FB"
     // XP-P801 80mm roll: approximately 72mm / 576 dots printable at 203dpi.
     private const val THERMAL_WIDTH_DOTS = 576
-    private const val RASTER_BAND_HEIGHT = 256
-    private const val SIDE_PADDING = 14
+    private const val SIDE_PADDING = 16
     private const val CONTENT_WIDTH = THERMAL_WIDTH_DOTS - SIDE_PADDING * 2
-    private const val SEPARATOR = "────────────────────────────"
+    private const val RASTER_BAND_HEIGHT = 256
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /** أسماء شائعة لطابعات الإيصالات الحرارية المقترنة. */
@@ -211,11 +211,16 @@ object InvoicePrinter {
         fun draw(canvas: Canvas, top: Int) = drawer(canvas, top)
     }
 
-    private fun thermalPaint(size: Float, bold: Boolean): TextPaint =
+    private fun thermalPaint(size: Float, bold: Boolean, medium: Boolean = false): TextPaint =
         TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.BLACK
             textSize = size
-            typeface = Typeface.create("sans-serif", if (bold) Typeface.BOLD else Typeface.NORMAL)
+            isSubpixelText = true
+            typeface = when {
+                bold -> Typeface.create("sans-serif", Typeface.BOLD)
+                medium -> Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                else -> Typeface.create("sans-serif", Typeface.NORMAL)
+            }
         }
 
     private fun buildLayout(
@@ -227,7 +232,7 @@ object InvoicePrinter {
         .setAlignment(align)
         .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_RTL)
         .setIncludePad(false)
-        .setLineSpacing(0f, 1f)
+        .setLineSpacing(2f, 1f)
         .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
         .build()
 
@@ -247,13 +252,36 @@ object InvoicePrinter {
         }
     }
 
-    /** سطر بعمودين: البيان على اليمين والمبلغ على اليسار. */
+    private fun centeredBlock(text: String, size: Float, bold: Boolean = false, gap: Int = 2): ReceiptBlock =
+        textBlock(text, size = size, bold = bold, align = Layout.Alignment.ALIGN_CENTER, gap = gap)
+
+    /** فاصل منقّط رفيع يمنح الإيصال مظهراً حديثاً بدل صفوف الشرطات. */
+    private fun separatorBlock(gap: Int = 9, thickness: Float = 2f): ReceiptBlock {
+        val height = (thickness + gap).toInt().coerceAtLeast(4)
+        return ReceiptBlock(height) { canvas, top ->
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.BLACK
+                strokeWidth = thickness
+                strokeCap = Paint.Cap.ROUND
+            }
+            val y = top + thickness / 2f
+            var x = 0f
+            val end = CONTENT_WIDTH.toFloat()
+            while (x < end) {
+                canvas.drawLine(x, y, minOf(x + 7f, end), y, paint)
+                x += 12f
+            }
+        }
+    }
+
+    /** سطر بعمودين: البيان على اليمين والمبلغ على اليسار، مع خط منقّط بينهما. */
     private fun rowBlock(
         label: String,
         value: String,
         size: Float = 22f,
         bold: Boolean = false,
-        gap: Int = 3
+        gap: Int = 3,
+        leader: Boolean = true
     ): ReceiptBlock {
         val valuePaint = thermalPaint(size, bold)
         val valueWidth = ceil(valuePaint.measureText(value)).toInt()
@@ -271,85 +299,139 @@ object InvoicePrinter {
             canvas.translate(0f, top.toFloat())
             valueLayout.draw(canvas)
             canvas.restore()
+            if (leader && labelLayout.lineCount == 1 && valueLayout.lineCount == 1) {
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.BLACK
+                    strokeWidth = 2f
+                    strokeCap = Paint.Cap.ROUND
+                }
+                val baseline = top + labelLayout.getLineBaseline(0) - 4f
+                var x = valueWidth + 8f
+                val end = CONTENT_WIDTH - labelWidth - 10f
+                while (x < end) {
+                    canvas.drawPoint(x, baseline, paint)
+                    x += 9f
+                }
+            }
+        }
+    }
+
+    /** شريط الإجمالي النهائي: خلفية سوداء ونص أبيض عالي التباين. */
+    private fun totalBand(label: String, value: String): ReceiptBlock {
+        val height = 54
+        val labelPaint = thermalPaint(22f, true).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.RIGHT
+        }
+        val valuePaint = thermalPaint(28f, true).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.LEFT
+        }
+        return ReceiptBlock(height + 6) { canvas, top ->
+            canvas.drawRoundRect(
+                RectF(0f, top.toFloat(), CONTENT_WIDTH.toFloat(), top + height.toFloat()),
+                8f, 8f,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
+            )
+            canvas.drawText(label, CONTENT_WIDTH - 12f, top + 34f, labelPaint)
+            canvas.drawText(value, 12f, top + 36f, valuePaint)
+        }
+    }
+
+    /** عنوان قسم معكوس الألوان يفصل أجزاء الإيصال بوضوح. */
+    private fun sectionBar(text: String): ReceiptBlock {
+        val height = 38
+        val paint = thermalPaint(21f, true).apply {
+            color = Color.WHITE
+            textAlign = Paint.Align.CENTER
+        }
+        return ReceiptBlock(height + 4) { canvas, top ->
+            canvas.drawRoundRect(
+                RectF(0f, top.toFloat(), CONTENT_WIDTH.toFloat(), top + height.toFloat()),
+                6f, 6f,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK }
+            )
+            canvas.drawText(text, CONTENT_WIDTH / 2f, top + 26f, paint)
         }
     }
 
     /** يبني أمر ESC/POS كامل بصورة نقطية عالية الدقة (يدعم العربية بالكامل). */
     fun buildThermalText(invoice: Invoice, company: CompanySettings): ByteArray {
         val blocks = mutableListOf<ReceiptBlock>()
-        val center = Layout.Alignment.ALIGN_CENTER
+        val calculator = invoice.isCalculator
 
-        blocks += textBlock(company.name.ifBlank { "اسم الشركة" }, size = 30f, bold = true, align = center, gap = 6)
-        if (company.phone.isNotBlank()) blocks += textBlock("الهاتف: ${company.phone}", size = 19f, align = center, gap = 1)
-        if (company.address.isNotBlank()) blocks += textBlock(company.address, size = 19f, align = center, gap = 1)
-        blocks += textBlock(SEPARATOR, size = 17f, align = center, gap = 7)
-
-        blocks += rowBlock("رقم الفاتورة", invoice.number, bold = true)
-        blocks += rowBlock(
-            "التاريخ",
-            "${Fmt.date(invoice.dateMillis)}  ${clockFormat.format(Date(invoice.dateMillis))}",
-            size = 19f
+        blocks += textBlock(
+            company.name.ifBlank { "اسم الشركة" },
+            size = 33f,
+            bold = true,
+            align = Layout.Alignment.ALIGN_CENTER,
+            gap = 3
         )
-        blocks += rowBlock("العميل", invoice.customerName.ifBlank { "عميل نقدي" }, size = 21f)
-        blocks += rowBlock("الدفع", invoice.paymentMethod.label, size = 19f)
-        blocks += textBlock(SEPARATOR, size = 17f, align = center, gap = 7)
+        if (company.phone.isNotBlank()) blocks += centeredBlock("هاتف: ${company.phone}", size = 18f, gap = 1)
+        if (company.address.isNotBlank()) blocks += centeredBlock(company.address, size = 18f, gap = 2)
+        blocks += separatorBlock(gap = 4, thickness = 3f)
 
-        if (invoice.isCalculator) {
-            blocks += textBlock("إيصال حساب فوري", size = 24f, bold = true, align = center, gap = 4)
-            blocks += textBlock(SEPARATOR, size = 17f, align = center, gap = 5)
-            invoice.items.forEach { item ->
+        blocks += rowBlock("رقم الفاتورة", invoice.number, size = 23f, bold = true, gap = 4)
+        blocks += rowBlock("التاريخ", Fmt.date(invoice.dateMillis), size = 19f, gap = 3)
+        blocks += rowBlock("الوقت", clockFormat.format(Date(invoice.dateMillis)), size = 19f, gap = 4)
+        blocks += rowBlock("العميل", invoice.customerName.ifBlank { "عميل نقدي" }, size = 21f, gap = 3)
+        blocks += rowBlock("الدفع", invoice.paymentMethod.label, size = 19f, gap = 5)
+
+        blocks += sectionBar(if (calculator) "إيصال حساب فوري" else "فاتورة مبيعات")
+
+        if (calculator) {
+            invoice.items.forEachIndexed { index, item ->
                 val label = when (item.name.trim()) {
                     "مبلغ إجمالي سريع", DIRECT_AMOUNT_LABEL, "" -> "مبلغ مباشر"
                     else -> item.name
                 }
-                blocks += rowBlock(label, Fmt.money(item.lineTotal), size = 23f, bold = true, gap = 2)
+                blocks += rowBlock("${index + 1}. $label", Fmt.money(item.lineTotal), size = 23f, bold = true, gap = 2)
                 if (item.quantity > 1.0) {
                     blocks += textBlock(
-                        "   ${Fmt.qty(item.quantity)} حبة × ${Fmt.amount(item.unitPrice)} د.ج",
+                        "${Fmt.qty(item.quantity)} حبة × ${Fmt.amount(item.unitPrice)} د.ج",
                         size = 18f,
-                        gap = 4
+                        gap = 6
                     )
                 }
             }
         } else {
-            blocks += textBlock("الأصناف", size = 24f, bold = true, align = center, gap = 4)
-            blocks += rowBlock("البيان", "الإجمالي", size = 18f, bold = true)
-            blocks += textBlock(SEPARATOR, size = 17f, align = center, gap = 5)
-            invoice.items.forEach { item ->
+            blocks += rowBlock("البيان", "الإجمالي", size = 18f, bold = true, leader = false)
+            blocks += separatorBlock(gap = 6, thickness = 2f)
+            invoice.items.forEachIndexed { index, item ->
                 val capacity = item.unitsPerPackage.coerceAtLeast(1)
-                blocks += textBlock(item.name.ifBlank { "منتج" }, size = 22f, bold = true, gap = 1)
+                blocks += textBlock("${index + 1}. ${item.name.ifBlank { "منتج" }}", size = 22f, bold = true, gap = 1)
                 val quantityText = if (item.unit == SaleUnit.PACKAGE) {
                     "${Fmt.qty(item.quantity)} حزمة × $capacity = ${Fmt.qty(item.totalPieces)} حبة"
                 } else {
                     "${Fmt.qty(item.quantity)} حبة"
                 }
-                blocks += textBlock("الكمية: $quantityText", size = 19f, gap = 1)
-                blocks += rowBlock(
-                    "سعر الحبة: ${Fmt.amount(item.piecePrice)} د.ج",
-                    Fmt.money(item.lineTotal),
-                    size = 19f,
-                    gap = 5
-                )
+                blocks += textBlock("$quantityText  ×  ${Fmt.amount(item.piecePrice)} د.ج للحبة", size = 18f, gap = 2)
+                blocks += rowBlock("الإجمالي", Fmt.money(item.lineTotal), size = 20f, bold = true, gap = 6)
             }
         }
 
-        blocks += textBlock(SEPARATOR, size = 17f, align = center, gap = 5)
-        blocks += rowBlock("عدد البنود", invoice.items.size.toString(), size = 20f)
-        if (!invoice.isCalculator) {
-            blocks += rowBlock("إجمالي الحبات", "${Fmt.qty(invoice.totalPieces)} حبة", size = 20f)
+        blocks += separatorBlock(gap = 6, thickness = 2f)
+        blocks += rowBlock("عدد البنود", invoice.items.size.toString(), size = 19f, gap = 3)
+        if (!calculator) {
+            blocks += rowBlock("إجمالي الحبات", "${Fmt.qty(invoice.totalPieces)} حبة", size = 19f, gap = 3)
         }
-        blocks += rowBlock("المجموع", Fmt.money(invoice.subtotal), size = 22f, bold = true)
         if (invoice.discount > 0.0) {
-            blocks += rowBlock("الخصم", "- ${Fmt.money(invoice.discount)}", size = 22f, bold = true)
+            blocks += rowBlock("المجموع الفرعي", Fmt.money(invoice.subtotal), size = 20f, gap = 3)
+            blocks += rowBlock("الخصم", "- ${Fmt.money(invoice.discount)}", size = 20f, gap = 4)
         }
-        blocks += textBlock(SEPARATOR, size = 17f, align = center, gap = 6)
-        blocks += rowBlock("الإجمالي النهائي", Fmt.money(invoice.total), size = 29f, bold = true, gap = 8)
+        blocks += totalBand("الإجمالي", Fmt.money(invoice.total))
+
         if (invoice.notes.isNotBlank()) {
-            blocks += textBlock("ملاحظات: ${invoice.notes}", size = 19f, gap = 6)
+            blocks += textBlock("ملاحظات: ${invoice.notes}", size = 18f, gap = 8)
         }
-        blocks += textBlock(SEPARATOR, size = 17f, align = center, gap = 7)
-        blocks += textBlock(company.footerNote.ifBlank { "شكراً لتعاملكم معنا" }, size = 20f, align = center, gap = 2)
-        blocks += textBlock("فاتورة سريعة", size = 15f, align = center, gap = 4)
+        blocks += separatorBlock(gap = 7, thickness = 2f)
+        blocks += centeredBlock(
+            company.footerNote.ifBlank { "شكراً لتعاملكم معنا" },
+            size = 21f,
+            bold = true,
+            gap = 4
+        )
+        blocks += centeredBlock("فاتورة سريعة • ${invoice.number}", size = 15f, gap = 4)
 
         val bitmap = renderReceipt(blocks)
         return try {
@@ -399,7 +481,7 @@ object InvoicePrinter {
                         val color = pixels[byteIndex * 8 + bit]
                         val luminance =
                             (Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000
-                        if (luminance < 168) bits = bits or (0x80 shr bit)
+                        if (luminance < 176) bits = bits or (0x80 shr bit)
                     }
                     output.write(bits)
                 }
@@ -417,3 +499,4 @@ object InvoicePrinter {
         mainHandler.post { Toast.makeText(context.applicationContext, message, Toast.LENGTH_LONG).show() }
     }
 }
+

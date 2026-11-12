@@ -57,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -64,9 +65,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import android.widget.Toast
 import com.madoui.fatoura.data.AppData
 import com.madoui.fatoura.data.Invoice
 import com.madoui.fatoura.data.InvoiceItem
+import com.madoui.fatoura.data.InvoiceKind
 import com.madoui.fatoura.data.InvoiceStatus
 import com.madoui.fatoura.data.PaymentMethod
 import com.madoui.fatoura.data.Product
@@ -113,6 +116,7 @@ fun InvoiceEditScreen(
     val existing = remember(invoiceId, data.invoices) {
         if (invoiceId != null) data.invoices.firstOrNull { it.id == invoiceId } else null
     }
+    val context = LocalContext.current
 
     var customerName by remember(invoiceId) { mutableStateOf(existing?.customerName ?: "") }
     var customerPhone by remember(invoiceId) { mutableStateOf(existing?.customerPhone ?: "") }
@@ -154,6 +158,44 @@ fun InvoiceEditScreen(
     val discount = Fmt.parseNumber(discountText) ?: 0.0
     val total = (subtotal - discount).coerceAtLeast(0.0)
 
+    fun persist() {
+        if (items.isEmpty()) {
+            error = "أضف صنفاً واحداً على الأقل قبل الحفظ"
+            return
+        }
+        val invoice = Invoice(
+            id = existing?.id ?: 0L,
+            number = existing?.number ?: data.nextInvoiceNumber.toString(),
+            dateMillis = existing?.dateMillis ?: System.currentTimeMillis(),
+            customerName = customerName.trim(),
+            customerPhone = customerPhone.trim(),
+            paymentMethod = payment,
+            status = status,
+            items = items.map { draft ->
+                InvoiceItem(
+                    id = draft.key,
+                    productId = draft.productId,
+                    name = draft.name,
+                    unit = draft.unit,
+                    quantity = draft.quantity,
+                    unitsPerPackage = draft.capacity,
+                    unitPrice = draft.unitPrice
+                )
+            },
+            discount = discount,
+            notes = notes.trim(),
+            kind = existing?.kind ?: InvoiceKind.SALE
+        )
+        val id = onSaveInvoice(invoice)
+        Toast.makeText(
+            context,
+            if (existing == null) "تم حفظ الفاتورة رقم ${invoice.number}"
+            else "تم تحديث الفاتورة رقم ${invoice.number}",
+            Toast.LENGTH_SHORT
+        ).show()
+        onSaved(id)
+    }
+
     fun addProduct(product: Product) {
         val unit = if (product.packageCapacity > 1) SaleUnit.PACKAGE else SaleUnit.PIECE
         val unitPrice = product.priceFor(unit)
@@ -180,35 +222,7 @@ fun InvoiceEditScreen(
                 title = if (existing == null) "فاتورة جديدة" else "تعديل الفاتورة",
                 onBack = onBack,
                 actions = {
-                    IconButton(onClick = {
-                        if (items.isEmpty()) {
-                            error = "أضف صنفاً واحداً على الأقل قبل الحفظ"
-                        } else {
-                            val invoice = Invoice(
-                                id = existing?.id ?: 0L,
-                                number = existing?.number ?: data.nextInvoiceNumber.toString(),
-                                dateMillis = existing?.dateMillis ?: System.currentTimeMillis(),
-                                customerName = customerName.trim(),
-                                customerPhone = customerPhone.trim(),
-                                paymentMethod = payment,
-                                status = status,
-                                items = items.map { draft ->
-                                    InvoiceItem(
-                                        id = draft.key,
-                                        productId = draft.productId,
-                                        name = draft.name,
-                                        unit = draft.unit,
-                                        quantity = draft.quantity,
-                                        unitsPerPackage = draft.capacity,
-                                        unitPrice = draft.unitPrice
-                                    )
-                                },
-                                discount = discount,
-                                notes = notes.trim()
-                            )
-                            onSaved(onSaveInvoice(invoice))
-                        }
-                    }) {
+                    IconButton(onClick = { persist() }) {
                         Icon(Icons.Filled.Check, contentDescription = "حفظ")
                     }
                 }
@@ -228,35 +242,7 @@ fun InvoiceEditScreen(
                         Text(Fmt.money(total), fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Teal)
                     }
                     Button(
-                        onClick = {
-                            if (items.isEmpty()) {
-                                error = "أضف صنفاً واحداً على الأقل قبل الحفظ"
-                            } else {
-                                val invoice = Invoice(
-                                    id = existing?.id ?: 0L,
-                                    number = existing?.number ?: data.nextInvoiceNumber.toString(),
-                                    dateMillis = existing?.dateMillis ?: System.currentTimeMillis(),
-                                    customerName = customerName.trim(),
-                                    customerPhone = customerPhone.trim(),
-                                    paymentMethod = payment,
-                                    status = status,
-                                    items = items.map { draft ->
-                                        InvoiceItem(
-                                            id = draft.key,
-                                            productId = draft.productId,
-                                            name = draft.name,
-                                            unit = draft.unit,
-                                            quantity = draft.quantity,
-                                            unitsPerPackage = draft.capacity,
-                                            unitPrice = draft.unitPrice
-                                        )
-                                    },
-                                    discount = discount,
-                                    notes = notes.trim()
-                                )
-                                onSaved(onSaveInvoice(invoice))
-                            }
-                        },
+                        onClick = { persist() },
                         shape = RoundedCornerShape(12.dp),
                         contentPadding = PaddingValues(horizontal = 28.dp, vertical = 12.dp)
                     ) {

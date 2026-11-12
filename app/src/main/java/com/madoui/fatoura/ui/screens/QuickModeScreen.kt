@@ -1,9 +1,11 @@
 package com.madoui.fatoura.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +29,7 @@ import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
@@ -53,10 +57,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
@@ -84,6 +90,8 @@ import com.madoui.fatoura.ui.components.FatouraTopBar
 import com.madoui.fatoura.ui.theme.Amber
 import com.madoui.fatoura.ui.theme.AmberSoft
 import com.madoui.fatoura.ui.theme.Background
+import com.madoui.fatoura.ui.theme.Danger
+import com.madoui.fatoura.ui.theme.DangerSoft
 import com.madoui.fatoura.ui.theme.LineColor
 import com.madoui.fatoura.ui.theme.Teal
 import com.madoui.fatoura.ui.theme.TealDark
@@ -93,7 +101,7 @@ import com.madoui.fatoura.ui.theme.TextPrimary
 import com.madoui.fatoura.util.Fmt
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.roundToLong
+import kotlin.math.round
 
 private enum class QuickTab(val label: String) {
     PRODUCTS("أصناف سريعة"),
@@ -785,7 +793,7 @@ private fun QuickCartSheet(
 
 // ------------------------------------------------------------------ الحاسبة
 
-/** بند محسوب داخل الحاسبة. يُحوَّل إلى بند فاتورة مباشرة دون أي تحليل نصي. */
+/** بند محسوب داخل الحاسبة، يُحوَّل إلى بند فاتورة مباشرة دون تحليل نصي. */
 private data class CalcEntry(
     val key: Long,
     val label: String,
@@ -800,8 +808,19 @@ private sealed interface CalcToken {
     data class Op(val symbol: Char) : CalcToken
 }
 
-private fun formatCalcNumber(value: Double): String =
-    if (!value.isFinite()) "0" else Fmt.amount(value)
+/** ينسّق رقم الحاسبة حتى أربع منازل دون أصفار زائدة. */
+private fun formatCalcNumber(value: Double): String {
+    if (!value.isFinite()) return "0"
+    val rounded = round(value * 10_000.0) / 10_000.0
+    return if (rounded == rounded.toLong().toDouble()) {
+        rounded.toLong().toString()
+    } else {
+        String.format(Locale.US, "%.4f", rounded).trimEnd('0').trimEnd('.')
+    }
+}
+
+/** يقرّب المبالغ إلى منزلتين عشريتين كما تُعرض في الفاتورة. */
+private fun moneyRound(value: Double): Double = round(value * 100.0) / 100.0
 
 private fun applyCalcOp(left: Double, right: Double, op: Char): Double? = when (op) {
     '+' -> left + right
@@ -811,7 +830,7 @@ private fun applyCalcOp(left: Double, right: Double, op: Char): Double? = when (
     else -> right
 }
 
-/** حساب التعبير مع احترام أولوية الضرب والقسمة. يعيد null عند القسمة على صفر. */
+/** يحسب التعبير مع أولوية الضرب والقسمة، ويعيد null عند القسمة على صفر. */
 private fun evaluateTokens(tokens: List<CalcToken>): Double? {
     if (tokens.isEmpty()) return null
     val numbers = mutableListOf<Double>()
@@ -890,6 +909,7 @@ private fun QuickCalculatorTab(
     var entries by remember { mutableStateOf<List<CalcEntry>>(emptyList()) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var isPrinting by remember { mutableStateOf(false) }
+    var editingEntry by remember { mutableStateOf<CalcEntry?>(null) }
 
     // ترقيم محلي متزايد حتى لا يتكرر رقم الفاتورة عند الطباعة والحفظ المتتالي.
     val baseNumber = remember { nextInvoiceNumber.toLongOrNull() ?: 0L }
@@ -903,14 +923,16 @@ private fun QuickCalculatorTab(
     val currentValue = display.toDoubleOrNull() ?: 0.0
     val entriesTotal = entries.sumOf { it.amount }
     val entriesPieces = entries.sumOf { it.quantity }
+    val pendingAmount = tokens.isNotEmpty() && currentValue > 0.0 && error == null
     val hasContent = entries.isNotEmpty() || (currentValue > 0.0 && error == null)
 
     fun addEntry(label: String, amount: Double, unitPrice: Double, quantity: Double) {
-        if (!amount.isFinite() || amount <= 0.0) return
+        val rounded = moneyRound(amount)
+        if (!rounded.isFinite() || rounded <= 0.0) return
         entries = (entries + CalcEntry(
             key = quickKeyGenerator.incrementAndGet(),
             label = label,
-            amount = amount,
+            amount = rounded,
             unitPrice = unitPrice,
             quantity = quantity
         )).takeLast(50)
@@ -990,6 +1012,25 @@ private fun QuickCalculatorTab(
         evaluated = false
     }
 
+    /** النسبة: تحسب على ناتج العملية الجارية إن وُجدت، وإلا تقسم الرقم الحالي على 100. */
+    fun percent() {
+        if (error != null) return
+        val value = display.toDoubleOrNull() ?: 0.0
+        val base = if (tokens.isNotEmpty() && tokens.last() is CalcToken.Op) {
+            evaluateTokens(tokens.dropLast(1))
+        } else {
+            null
+        }
+        val result = if (base != null) base * value / 100.0 else value / 100.0
+        if (!result.isFinite()) {
+            error = "قيمة غير صالحة"
+            return
+        }
+        display = formatCalcNumber(result)
+        resetOnNext = false
+        evaluated = false
+    }
+
     fun equals() {
         if (error != null) return
         val value = display.toDoubleOrNull() ?: 0.0
@@ -1037,19 +1078,32 @@ private fun QuickCalculatorTab(
     }
 
     fun buildInvoice(customerName: String = "عميل نقدي", phone: String = ""): Invoice {
-        val items = when {
-            entries.isNotEmpty() -> entries.map { entry ->
+        val saved = entries.map { entry ->
+            InvoiceItem(
+                id = entry.key,
+                productId = null,
+                name = entry.label,
+                unit = SaleUnit.PIECE,
+                quantity = entry.quantity,
+                unitsPerPackage = 1,
+                unitPrice = entry.unitPrice
+            )
+        }
+        // العملية غير المنتهية بـ = تُضاف كسطر أخير حتى لا يضيع المبلغ أثناء الطباعة.
+        val pending = if (pendingAmount) {
+            listOf(
                 InvoiceItem(
-                    id = entry.key,
+                    id = quickKeyGenerator.incrementAndGet(),
                     productId = null,
-                    name = entry.label,
+                    name = tokensLabel(tokens).ifBlank { DIRECT_AMOUNT_LABEL },
                     unit = SaleUnit.PIECE,
-                    quantity = entry.quantity,
+                    quantity = 1.0,
                     unitsPerPackage = 1,
-                    unitPrice = entry.unitPrice
+                    unitPrice = currentValue
                 )
-            }
-            currentValue > 0.0 -> listOf(
+            )
+        } else if (saved.isEmpty() && currentValue > 0.0) {
+            listOf(
                 InvoiceItem(
                     id = quickKeyGenerator.incrementAndGet(),
                     productId = null,
@@ -1060,7 +1114,8 @@ private fun QuickCalculatorTab(
                     unitPrice = currentValue
                 )
             )
-            else -> emptyList()
+        } else {
+            emptyList()
         }
         return Invoice(
             number = nextNumber(),
@@ -1069,7 +1124,7 @@ private fun QuickCalculatorTab(
             paymentMethod = PaymentMethod.CASH,
             status = InvoiceStatus.PAID,
             kind = InvoiceKind.CALCULATOR,
-            items = items
+            items = saved + pending
         )
     }
 
@@ -1107,329 +1162,151 @@ private fun QuickCalculatorTab(
         onSaved(invoiceId)
     }
 
-    Column(
+    fun handleKey(key: String) {
+        when (key) {
+            "C" -> resetEntry()
+            "⌫" -> backspace()
+            "%" -> percent()
+            "÷" -> chooseOperation('÷')
+            "×" -> chooseOperation('×')
+            "−" -> chooseOperation('-')
+            "+" -> chooseOperation('+')
+            "=" -> equals()
+            "." -> inputDot()
+            else -> inputDigit(key)
+        }
+    }
+
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
+            .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.Start
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier
-                            .background(AmberSoft, RoundedCornerShape(10.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text("حاسبة سريعة فورية", fontSize = 11.sp, color = Amber, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.weight(1f))
-                    if (entries.isNotEmpty()) {
-                        Text(
-                            "${entries.size} بنود | ${Fmt.qty(entriesPieces)} حبة",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TealDark
-                        )
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    when {
-                        error != null -> error.orEmpty()
-                        tokens.isNotEmpty() -> tokensLabel(tokens) + " …"
-                        else -> "اكتب: سعر الحبة × عدد الحبات ثم ="
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    fontSize = 12.sp,
-                    color = if (error != null) MaterialTheme.colorScheme.error else TextMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.End
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    display,
-                    modifier = Modifier.fillMaxWidth(),
-                    fontSize = if (display.length > 9) 28.sp else 38.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (error != null) MaterialTheme.colorScheme.error else TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.End
-                )
-                Spacer(Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(Fmt.money(currentValue), fontSize = 13.sp, color = Teal, fontWeight = FontWeight.SemiBold)
-                    if (entries.isNotEmpty()) {
-                        Text(
-                            "المجموع الكلي: ${Fmt.money(entriesTotal)}",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TealDark
-                        )
-                    }
-                }
-            }
+        // ارتفاع الشاشة يحدد حجم المفاتيح حتى تبقى لوحة الأرقام ظاهرة دائماً دون تمرير.
+        val available = maxHeight
+        val dense = available < 620.dp
+        val keyHeight = when {
+            available < 500.dp -> 36.dp
+            available < 560.dp -> 41.dp
+            available < 640.dp -> 45.dp
+            else -> 48.dp
         }
+        val barHeight = if (available < 560.dp) 42.dp else 46.dp
+        val keysGap = if (dense) 5.dp else 7.dp
 
-        Spacer(Modifier.height(14.dp))
+        Column(Modifier.fillMaxSize()) {
+            CalcDisplayCard(
+                display = display,
+                expression = if (tokens.isNotEmpty()) tokensLabel(tokens) + " " + display else "",
+                error = error,
+                entriesCount = entries.size,
+                entriesPieces = entriesPieces,
+                entriesTotal = entriesTotal,
+                dense = dense,
+                onCustomCustomer = { showSaveDialog = true }
+            )
 
-        if (entries.isNotEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Column(
+            if (entries.isEmpty()) {
+                Box(
                     modifier = Modifier
+                        .weight(1f)
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "بنود الفاتورة الحالية",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimary
+                            "كل عملية تنتهي بـ = تصبح بنداً في الفاتورة",
+                            fontSize = 11.5.sp,
+                            color = TextMuted,
+                            textAlign = TextAlign.Center
                         )
-                        TextButton(
-                            onClick = { clearAll() },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                        ) {
-                            Text("مسح الكل", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                        }
+                        Spacer(Modifier.height(3.dp))
+                        Text("350 × 12 =", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = TealDark)
                     }
-
-                    entries.forEach { entry ->
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    item(key = "entries-header") {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFFF9FAFB), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    entry.label,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = TextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (entry.quantity > 1.0) {
-                                    Text(
-                                        "${Fmt.qty(entry.quantity)} حبة × ${Fmt.amount(entry.unitPrice)} د.ج",
-                                        fontSize = 10.sp,
-                                        color = TealDark
-                                    )
-                                }
-                            }
                             Text(
-                                Fmt.money(entry.amount),
-                                fontSize = 12.5.sp,
+                                "بنود الفاتورة (${entries.size})",
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TealDark
+                                color = TextPrimary
                             )
-                            Spacer(Modifier.width(6.dp))
-                            IconButton(
-                                onClick = { entries = entries.filterNot { it.key == entry.key } },
-                                modifier = Modifier.size(26.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "حذف السطر",
-                                    tint = TextMuted,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                "مسح الكل",
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { clearAll() }
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.error
+                            )
                         }
                     }
-
-                    HorizontalDivider(color = LineColor.copy(alpha = 0.7f))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "إجمالي الحبات: ${Fmt.qty(entriesPieces)} حبة",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextMuted
+                    itemsIndexed(entries, key = { _, entry -> entry.key }) { index, entry ->
+                        CalcEntryRow(
+                            index = index,
+                            entry = entry,
+                            onEdit = { editingEntry = entry },
+                            onRemove = { entries = entries.filterNot { it.key == entry.key } }
                         )
-                        Text(Fmt.money(entriesTotal), fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Teal)
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
-        }
 
-        Text("مضاعفات سريعة للحبات:", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = TextMuted)
-        Spacer(Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            listOf(10, 12, 24, 6, 50, 100).forEach { count ->
-                Surface(
-                    onClick = { quickMultiply(count) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
-                    color = TealSoft,
-                    tonalElevation = 1.dp
-                ) {
-                    Text(
-                        "× $count",
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        textAlign = TextAlign.Center,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TealDark
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(14.dp))
-
-        val rows = listOf(
-            listOf("C", "⌫", "%", "÷"),
-            listOf("7", "8", "9", "×"),
-            listOf("4", "5", "6", "−"),
-            listOf("1", "2", "3", "+"),
-            listOf("0", ".", "=")
-        )
-
-        rows.forEach { row ->
+            Spacer(Modifier.height(4.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                row.forEach { key ->
-                    CalcKey(
-                        label = key,
-                        modifier = Modifier.weight(if (key == "=" && row.size == 3) 2f else 1f),
-                        isOperation = key in listOf("÷", "×", "−", "+", "=", "%"),
-                        isAccent = key == "=",
-                        onClick = {
-                            when (key) {
-                                "C" -> resetEntry()
-                                "⌫" -> backspace()
-                                "%" -> display = formatCalcNumber((display.toDoubleOrNull() ?: 0.0) / 100.0)
-                                "÷" -> chooseOperation('÷')
-                                "×" -> chooseOperation('×')
-                                "−" -> chooseOperation('-')
-                                "+" -> chooseOperation('+')
-                                "=" -> equals()
-                                "." -> inputDot()
-                                else -> inputDigit(key)
-                            }
-                        }
-                    )
+                listOf(6, 10, 12, 24, 50, 100).forEach { count ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(if (dense) 27.dp else 30.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(TealSoft)
+                            .clickable { quickMultiply(count) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("×$count", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TealDark)
+                    }
                 }
             }
-            Spacer(Modifier.height(10.dp))
-        }
 
-        Spacer(Modifier.height(10.dp))
-
-        Button(
-            onClick = { saveAndPrint() },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp),
-            shape = RoundedCornerShape(14.dp),
-            enabled = hasContent && !isPrinting,
-            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF1B8755),
-                contentColor = Color.White
-            )
-        ) {
-            Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (isPrinting) "جارِ إرسال الأمر للطابعة..." else "طباعة فورية بنقرة واحدة (XP-P801)",
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
+            Spacer(Modifier.height(keysGap))
+            CalcKeypad(keyHeight = keyHeight, gap = keysGap, onKey = ::handleKey)
+            Spacer(Modifier.height(keysGap))
+            CalcActionBar(
+                canAddCurrent = pendingAmount || (entries.isEmpty() && currentValue > 0.0 && error == null),
+                hasContent = hasContent,
+                isPrinting = isPrinting,
+                height = barHeight,
+                onAddCurrent = { addCurrentAmount() },
+                onSaveOnly = { saveOnly() },
+                onPrint = { saveAndPrint() }
             )
         }
-
-        Spacer(Modifier.height(8.dp))
-
-        androidx.compose.material3.OutlinedButton(
-            onClick = { addCurrentAmount() },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(46.dp),
-            shape = RoundedCornerShape(12.dp),
-            enabled = currentValue > 0.0 && error == null
-        ) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("إضافة المبلغ الحالي إلى الفاتورة", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Button(
-                onClick = { saveOnly() },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp),
-                shape = RoundedCornerShape(12.dp),
-                enabled = hasContent
-            ) {
-                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("حفظ سريع", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-            }
-
-            androidx.compose.material3.OutlinedButton(
-                onClick = { showSaveDialog = true },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(48.dp),
-                shape = RoundedCornerShape(12.dp),
-                enabled = hasContent
-            ) {
-                Text("تخصيص عميل...", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
     }
 
     if (showSaveDialog) {
-        val invoiceAmount = if (entries.isNotEmpty()) entriesTotal else currentValue
+        val invoiceAmount = entriesTotal + if (pendingAmount) currentValue else 0.0
         QuickInvoiceDialog(
-            amount = invoiceAmount,
+            amount = if (invoiceAmount > 0.0) invoiceAmount else currentValue,
             invoiceNumber = (baseNumber + numberOffset).toString(),
             onDismiss = { showSaveDialog = false },
             onConfirm = { customerName, phone ->
@@ -1439,31 +1316,252 @@ private fun QuickCalculatorTab(
             }
         )
     }
+
+    editingEntry?.let { entry ->
+        CalcEntryDialog(
+            entry = entry,
+            onDismiss = { editingEntry = null },
+            onConfirm = { amount ->
+                entries = entries.map {
+                    if (it.key == entry.key) it.copy(amount = moneyRound(amount)) else it
+                }
+                editingEntry = null
+            }
+        )
+    }
+}
+
+@Composable
+private fun CalcDisplayCard(
+    display: String,
+    expression: String,
+    error: String?,
+    entriesCount: Int,
+    entriesPieces: Double,
+    entriesTotal: Double,
+    dense: Boolean,
+    onCustomCustomer: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(if (dense) 18.dp else 24.dp))
+            .background(Brush.linearGradient(listOf(TealDark, Teal)))
+            .padding(horizontal = 16.dp, vertical = if (dense) 10.dp else 14.dp)
+    ) {
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(50))
+                        .padding(horizontal = 9.dp, vertical = 3.dp)
+                ) {
+                    Text("حاسبة فورية", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+                Spacer(Modifier.weight(1f))
+                if (entriesCount > 0) {
+                    Text(
+                        "$entriesCount بند • ${Fmt.qty(entriesPieces)} حبة",
+                        fontSize = 9.5.sp,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+                IconButton(onClick = onCustomCustomer, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        Icons.Filled.Person,
+                        contentDescription = "تخصيص عميل",
+                        tint = Color.White,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(2.dp))
+            Text(
+                expression.ifBlank { " " },
+                modifier = Modifier.fillMaxWidth(),
+                fontSize = 12.5.sp,
+                color = Color.White.copy(alpha = 0.72f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End
+            )
+            Text(
+                display,
+                modifier = Modifier.fillMaxWidth(),
+                fontSize = when {
+                    display.length > 9 -> if (dense) 26.sp else 30.sp
+                    dense -> 33.sp
+                    else -> 38.sp
+                },
+                fontWeight = FontWeight.Bold,
+                color = if (error != null) Color(0xFFFFD7D7) else Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End
+            )
+            if (error != null) {
+                Text(
+                    error,
+                    modifier = Modifier.fillMaxWidth(),
+                    fontSize = 10.5.sp,
+                    color = Color(0xFFFFD7D7),
+                    textAlign = TextAlign.End
+                )
+            }
+
+            Spacer(Modifier.height(if (dense) 5.dp else 8.dp))
+            HorizontalDivider(color = Color.White.copy(alpha = 0.18f))
+            Spacer(Modifier.height(if (dense) 4.dp else 7.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("إجمالي الفاتورة", fontSize = 10.5.sp, color = Color.White.copy(alpha = 0.78f))
+                Spacer(Modifier.weight(1f))
+                Text(
+                    Fmt.money(entriesTotal),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalcEntryRow(
+    index: Int,
+    entry: CalcEntry,
+    onEdit: () -> Unit,
+    onRemove: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color.White)
+            .padding(start = 10.dp, end = 2.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .background(TealSoft, RoundedCornerShape(50)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("${index + 1}", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = TealDark)
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                entry.label,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (entry.quantity > 1.0) {
+                Text(
+                    "${Fmt.qty(entry.quantity)} × ${Fmt.amount(entry.unitPrice)} د.ج",
+                    fontSize = 9.5.sp,
+                    color = TextMuted
+                )
+            }
+        }
+        Text(
+            Fmt.money(entry.amount),
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onEdit)
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = TealDark
+        )
+        IconButton(onClick = onRemove, modifier = Modifier.size(26.dp)) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "حذف البند",
+                tint = TextMuted,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
+}
+
+private enum class CalcKeyKind { DIGIT, ACTION, OPERATOR, ACCENT, DANGER }
+
+@Composable
+private fun CalcKeypad(keyHeight: Dp, gap: Dp, onKey: (String) -> Unit) {
+    val rows = listOf(
+        listOf("C", "⌫", "%", "÷"),
+        listOf("7", "8", "9", "×"),
+        listOf("4", "5", "6", "−"),
+        listOf("1", "2", "3", "+"),
+        listOf("0", ".", "=")
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(gap)
+            ) {
+                row.forEach { key ->
+                    val kind = when {
+                        key == "=" -> CalcKeyKind.ACCENT
+                        key == "C" -> CalcKeyKind.DANGER
+                        key in listOf("÷", "×", "−", "+") -> CalcKeyKind.OPERATOR
+                        key == "⌫" || key == "%" -> CalcKeyKind.ACTION
+                        else -> CalcKeyKind.DIGIT
+                    }
+                    CalcKey(
+                        label = key,
+                        kind = kind,
+                        keyHeight = keyHeight,
+                        modifier = Modifier.weight(if (key == "0") 2f else 1f),
+                        onClick = { onKey(key) }
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
 private fun CalcKey(
     label: String,
+    kind: CalcKeyKind,
+    keyHeight: Dp,
     modifier: Modifier = Modifier,
-    isOperation: Boolean = false,
-    isAccent: Boolean = false,
     onClick: () -> Unit
 ) {
-    val background = when {
-        isAccent -> Teal
-        isOperation -> TealSoft
-        else -> Color.White
+    val background = when (kind) {
+        CalcKeyKind.ACCENT -> Teal
+        CalcKeyKind.OPERATOR -> TealSoft
+        CalcKeyKind.DANGER -> DangerSoft
+        CalcKeyKind.ACTION -> Color(0xFFF1F3F5)
+        CalcKeyKind.DIGIT -> Color.White
     }
-    val contentColor = when {
-        isAccent -> Color.White
-        isOperation -> TealDark
+    val contentColor = when (kind) {
+        CalcKeyKind.ACCENT -> Color.White
+        CalcKeyKind.OPERATOR -> TealDark
+        CalcKeyKind.DANGER -> Danger
         else -> TextPrimary
     }
+    val corner = if (keyHeight < 44.dp) 11.dp else 14.dp
 
     Box(
         modifier = modifier
-            .height(58.dp)
-            .background(background, RoundedCornerShape(14.dp))
+            .height(keyHeight)
+            .clip(RoundedCornerShape(corner))
+            .background(background)
+            .border(
+                width = 1.dp,
+                color = if (kind == CalcKeyKind.DIGIT) LineColor else Color.Transparent,
+                shape = RoundedCornerShape(corner)
+            )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -1472,17 +1570,126 @@ private fun CalcKey(
                 Icons.Filled.Backspace,
                 contentDescription = "حذف آخر رقم",
                 tint = contentColor,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(if (keyHeight < 44.dp) 17.dp else 19.dp)
             )
         } else {
             Text(
                 label,
-                fontSize = 20.sp,
+                fontSize = if (keyHeight < 44.dp) 17.sp else 19.sp,
                 fontWeight = FontWeight.Bold,
                 color = contentColor
             )
         }
     }
+}
+
+@Composable
+private fun CalcActionBar(
+    canAddCurrent: Boolean,
+    hasContent: Boolean,
+    isPrinting: Boolean,
+    height: Dp,
+    onAddCurrent: () -> Unit,
+    onSaveOnly: () -> Unit,
+    onPrint: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        androidx.compose.material3.OutlinedButton(
+            onClick = onAddCurrent,
+            enabled = canAddCurrent,
+            modifier = Modifier
+                .weight(1f)
+                .height(height),
+            shape = RoundedCornerShape(13.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp)
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("إضافة", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+
+        androidx.compose.material3.OutlinedButton(
+            onClick = onSaveOnly,
+            enabled = hasContent,
+            modifier = Modifier
+                .weight(1f)
+                .height(height),
+            shape = RoundedCornerShape(13.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp)
+        ) {
+            Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("حفظ", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+
+        Button(
+            onClick = onPrint,
+            enabled = hasContent && !isPrinting,
+            modifier = Modifier
+                .weight(1.3f)
+                .height(height),
+            shape = RoundedCornerShape(13.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp),
+            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF1B8755),
+                contentColor = Color.White
+            )
+        ) {
+            Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(
+                if (isPrinting) "جارٍ..." else "طباعة",
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun CalcEntryDialog(
+    entry: CalcEntry,
+    onDismiss: () -> Unit,
+    onConfirm: (Double) -> Unit
+) {
+    var text by remember(entry.key) { mutableStateOf(Fmt.amount(entry.amount)) }
+    var invalid by remember(entry.key) { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(22.dp),
+        title = { Text("تعديل مبلغ البند", fontSize = 16.sp, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(entry.label, fontSize = 12.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it; invalid = false },
+                    label = { Text("المبلغ (د.ج)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = invalid,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val value = Fmt.parseNumber(text)
+                if (value == null || value <= 0.0) invalid = true else onConfirm(value)
+            }) {
+                Text("حفظ", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء", color = TextMuted) }
+        }
+    )
 }
 
 @Composable
@@ -1533,14 +1740,4 @@ private fun QuickInvoiceDialog(
             TextButton(onClick = onDismiss) { Text("إلغاء", color = TextMuted) }
         }
     )
-}
-
-private fun formatResult(value: Double): String {
-    if (value.isNaN() || value.isInfinite()) return "0"
-    val rounded = (value * 1000.0).roundToLong() / 1000.0
-    return if (rounded == rounded.toLong().toDouble()) {
-        rounded.toLong().toString()
-    } else {
-        String.format(Locale.US, "%.3f", rounded).trimEnd('0').trimEnd('.')
-    }
 }
