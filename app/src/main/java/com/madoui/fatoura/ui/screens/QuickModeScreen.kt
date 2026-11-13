@@ -796,20 +796,23 @@ private fun QuickCartSheet(
 /** بند محسوب داخل الحاسبة، يُحوَّل إلى بند فاتورة مباشرة دون تحليل نصي. */
 private data class CalcEntry(
     val key: Long,
-    val baseLabel: String,
+    val label: String,
     val unitPrice: Double,
     val quantity: Double
 ) {
     /** الإجمالي يُشتق دائماً من السعر × الكمية، فتبقى الشاشة مطابقة للمطبوع. */
     val amount: Double get() = moneyRound(unitPrice * quantity)
+}
 
-    /** بيان السطر: تعبير السعر × الكمية عند تعدّد الحبات، وإلا التسمية الأصلية. */
-    val label: String
-        get() = if (quantity > 1.0) {
-            "${formatCalcNumber(unitPrice)} × ${formatCalcNumber(quantity)}"
-        } else {
-            baseLabel
-        }
+/**
+ * يعيد صياغة بيان السطر بعد تعديل الكمية أو السعر:
+ * «250 × 10» تصبح «250 × 12»، والعملية المركّبة تتحوّل إلى المبلغ النهائي،
+ * والمبلغ المباشر يحتفظ بتسميته.
+ */
+private fun calcEntryLabel(originalLabel: String, unitPrice: Double, quantity: Double): String = when {
+    originalLabel.trim() == DIRECT_AMOUNT_LABEL -> DIRECT_AMOUNT_LABEL
+    quantity > 1.0 -> "${formatCalcNumber(unitPrice)} × ${formatCalcNumber(quantity)}"
+    else -> formatCalcNumber(unitPrice)
 }
 
 /** رمز داخل تعبير الحاسبة: رقم أو عملية. */
@@ -946,7 +949,7 @@ private fun QuickCalculatorTab(
         if (!price.isFinite() || price <= 0.0) return
         entries = (entries + CalcEntry(
             key = quickKeyGenerator.incrementAndGet(),
-            baseLabel = label,
+            label = label,
             unitPrice = price,
             quantity = qty
         )).takeLast(50)
@@ -1335,10 +1338,10 @@ private fun QuickCalculatorTab(
         CalcEntryDialog(
             entry = entry,
             onDismiss = { editingEntry = null },
-            onConfirm = { price, quantity ->
+            onConfirm = { label, price, quantity ->
                 entries = entries.map {
                     if (it.key == entry.key) {
-                        it.copy(unitPrice = moneyRound(price), quantity = quantity)
+                        it.copy(label = label, unitPrice = moneyRound(price), quantity = quantity)
                     } else {
                         it
                     }
@@ -1672,7 +1675,7 @@ private fun CalcActionBar(
 private fun CalcEntryDialog(
     entry: CalcEntry,
     onDismiss: () -> Unit,
-    onConfirm: (Double, Double) -> Unit
+    onConfirm: (String, Double, Double) -> Unit
 ) {
     var qtyText by remember(entry.key) { mutableStateOf(Fmt.qty(entry.quantity)) }
     var priceText by remember(entry.key) { mutableStateOf(Fmt.amount(entry.unitPrice)) }
@@ -1690,11 +1693,7 @@ private fun CalcEntryDialog(
     val previewPrice = Fmt.parseNumber(priceText) ?: 0.0
     val previewQty = Fmt.parseNumber(qtyText) ?: 0.0
     val previewTotal = moneyRound(previewPrice * previewQty)
-    val previewLabel = if (previewQty > 1.0) {
-        "${formatCalcNumber(previewPrice)} × ${formatCalcNumber(previewQty)}"
-    } else {
-        entry.baseLabel
-    }
+    val previewLabel = calcEntryLabel(entry.label, previewPrice, previewQty)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1781,7 +1780,7 @@ private fun CalcEntryDialog(
                 when {
                     qty == null || qty <= 0.0 -> invalid = "أدخل كمية أكبر من صفر"
                     price == null || price <= 0.0 -> invalid = "أدخل سعراً أكبر من صفر"
-                    else -> onConfirm(price, qty)
+                    else -> onConfirm(calcEntryLabel(entry.label, price, qty), price, qty)
                 }
             }) {
                 Text("حفظ", fontWeight = FontWeight.Bold)

@@ -39,23 +39,23 @@ jobs:
       - name: Prepare APK file
         run: |
           mkdir -p release-apk
-          cp app/build/outputs/apk/debug/app-debug.apk release-apk/fatoura-saria-v2.4.apk
+          cp app/build/outputs/apk/debug/app-debug.apk release-apk/fatoura-saria-v2.5.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fatoura-saria-v2.4
-          path: release-apk/fatoura-saria-v2.4.apk
+          name: fatoura-saria-v2.5
+          path: release-apk/fatoura-saria-v2.5.apk
           if-no-files-found: error
 
       - name: Update GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
-          tag_name: v2.4
-          name: "فاتورة سريعة v2.4"
-          body: "تطبيق فاتورة سريعة v2.4 — إصلاح بيان العملية الحسابية عند التعديل: تغيير الكمية أو السعر في شاشة تعديل الفاتورة يحدّث نص العملية نفسه (250 × 10 ← 250 × 12) في الشاشة والملف والإيصال الحراري. ويشمل الإصدار v2.3: تعديل بنود الحاسبة الكامل وخط الطباعة الأكبر والأوضح."
-          files: release-apk/fatoura-saria-v2.4.apk
+          tag_name: v2.5
+          name: "فاتورة سريعة v2.5"
+          body: "تطبيق فاتورة سريعة v2.5 — إصلاح داخل الحاسبة السريعة: تعديل بند (الكمية أو سعر الحبة) يعيد صياغة نص العملية نفسه، فتصبح 250 × 10 هي 250 × 12، والعمليات المركّبة تتحوّل إلى المبلغ النهائي الجديد. ينطبق على كل بنود الحاسبة بما فيها العمليات التي كميتها 1."
+          files: release-apk/fatoura-saria-v2.5.apk
           draft: false
           prerelease: false
         env:
