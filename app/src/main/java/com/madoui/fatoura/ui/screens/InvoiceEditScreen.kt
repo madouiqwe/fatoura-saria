@@ -74,6 +74,7 @@ import com.madoui.fatoura.data.InvoiceStatus
 import com.madoui.fatoura.data.PaymentMethod
 import com.madoui.fatoura.data.Product
 import com.madoui.fatoura.data.SaleUnit
+import com.madoui.fatoura.data.refreshedCalcItemName
 import com.madoui.fatoura.ui.components.FatouraTopBar
 import com.madoui.fatoura.ui.theme.Background
 import com.madoui.fatoura.ui.theme.Blue
@@ -157,6 +158,19 @@ fun InvoiceEditScreen(
     val subtotal = items.sumOf { it.lineTotal }
     val discount = Fmt.parseNumber(discountText) ?: 0.0
     val total = (subtotal - discount).coerceAtLeast(0.0)
+
+    /**
+     * يحدّث بنداً ويعيد توليد اسمه إن كان نص عملية حسابية،
+     * حتى يتغيّر البيان «250 × 10» إلى «250 × 12» بعد تعديل الكمية.
+     */
+    fun updateItemAt(index: Int, transform: (DraftItem) -> DraftItem) {
+        if (index < 0 || index >= items.size) return
+        val current = items[index]
+        val updated = transform(current)
+        items[index] = updated.copy(
+            name = refreshedCalcItemName(current.name, updated.unitPrice, updated.quantity)
+        )
+    }
 
     fun persist() {
         if (items.isEmpty()) {
@@ -381,18 +395,16 @@ fun InvoiceEditScreen(
                             item.piecePrice * item.capacity
                         } else item.piecePrice
                         val index = items.indexOfFirst { it.key == item.key }
-                        if (index >= 0) {
-                            items[index] = item.copy(unit = newUnit, unitPrice = newPrice)
-                        }
+                        updateItemAt(index) { it.copy(unit = newUnit, unitPrice = newPrice) }
                     },
                     onIncrement = {
                         val index = items.indexOfFirst { it.key == item.key }
-                        if (index >= 0) items[index] = item.copy(quantity = item.quantity + 1)
+                        updateItemAt(index) { it.copy(quantity = it.quantity + 1) }
                     },
                     onDecrement = {
                         val index = items.indexOfFirst { it.key == item.key }
-                        if (index >= 0 && item.quantity > 1) {
-                            items[index] = item.copy(quantity = item.quantity - 1)
+                        if (item.quantity > 1) {
+                            updateItemAt(index) { it.copy(quantity = it.quantity - 1) }
                         }
                     },
                     onEditQuantity = { editingQuantityFor = item },
@@ -495,7 +507,7 @@ fun InvoiceEditScreen(
             onDismiss = { editingQuantityFor = null },
             onConfirm = { value ->
                 val index = items.indexOfFirst { it.key == item.key }
-                if (index >= 0) items[index] = items[index].copy(quantity = value.coerceAtLeast(0.01))
+                updateItemAt(index) { it.copy(quantity = value.coerceAtLeast(0.01)) }
                 editingQuantityFor = null
             }
         )
@@ -508,7 +520,7 @@ fun InvoiceEditScreen(
             onDismiss = { editingPriceFor = null },
             onConfirm = { value ->
                 val index = items.indexOfFirst { it.key == item.key }
-                if (index >= 0) items[index] = items[index].copy(unitPrice = value.coerceAtLeast(0.0))
+                updateItemAt(index) { it.copy(unitPrice = value.coerceAtLeast(0.0)) }
                 editingPriceFor = null
             }
         )

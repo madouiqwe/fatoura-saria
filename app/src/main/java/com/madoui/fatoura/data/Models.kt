@@ -44,6 +44,24 @@ private const val LEGACY_DIRECT_AMOUNT_LABEL = "مبلغ إجمالي سريع"
 /** يطابق تعبيراً حسابياً بسيطاً مثل «350 × 12» أو «5+3». */
 private val CALC_EXPRESSION = Regex("""^\s*[\d.,]+\s*[+\-×÷*/]\s*[\d.,]+\s*$""")
 
+/** يطابق أي نص ناتج عن الحاسبة: أرقام وعمليات حسابية فقط بلا أسماء. */
+private val CALC_ANY_EXPRESSION = Regex("""^\s*[\d.,\s+\-−×÷x*/]+\s*$""")
+
+/**
+ * يعيد اسم السطر بعد تعديل الكمية أو السعر:
+ * سطر «250 × 10» يصبح «250 × 12» عند تغيير الكمية، والمبلغ المباشر
+ * يحتفظ بتسميته، وأسماء المنتجات المكتوبة يدوياً لا تُمس.
+ */
+fun refreshedCalcItemName(originalName: String, unitPrice: Double, quantity: Double): String {
+    val name = originalName.trim()
+    if (name.isEmpty()) return DIRECT_AMOUNT_LABEL
+    if (name == DIRECT_AMOUNT_LABEL || name == LEGACY_DIRECT_AMOUNT_LABEL) return name
+    if (!CALC_ANY_EXPRESSION.matches(name) || !name.any { it.isDigit() }) return originalName
+    val price = com.madoui.fatoura.util.Fmt.amount(unitPrice)
+    val qty = com.madoui.fatoura.util.Fmt.qty(quantity)
+    return if (quantity > 1.0) "$price × $qty" else price
+}
+
 @Serializable
 enum class InvoiceStatus {
     PAID,
