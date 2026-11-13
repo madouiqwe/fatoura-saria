@@ -39,23 +39,23 @@ jobs:
       - name: Prepare APK file
         run: |
           mkdir -p release-apk
-          cp app/build/outputs/apk/debug/app-debug.apk release-apk/fatoura-saria-v2.6.apk
+          cp app/build/outputs/apk/debug/app-debug.apk release-apk/fatoura-saria-v2.7.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fatoura-saria-v2.6
-          path: release-apk/fatoura-saria-v2.6.apk
+          name: fatoura-saria-v2.7
+          path: release-apk/fatoura-saria-v2.7.apk
           if-no-files-found: error
 
       - name: Update GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
-          tag_name: v2.6
-          name: "فاتورة سريعة v2.6"
-          body: "تطبيق فاتورة سريعة v2.6 — الحاسبة السريعة صارت خانة مستقلة في التطبيق ببطاقة على الشاشة الرئيسية. العمليات تُعرض بنتيجتها (250 × 10 = 2500) في الحاسبة وال فاتورة والإيصال الحراري، وإزالة أرقام البنود، وإظهار رقم هاتف العميل في الإيصال، وحقل هاتف أوضح في شاشة تعديل الفاتورة."
-          files: release-apk/fatoura-saria-v2.6.apk
+          tag_name: v2.7
+          name: "فاتورة سريعة v2.7"
+          body: "تطبيق فاتورة سريعة v2.7 — خط عربي عصري (IBM Plex Sans Arabic) في كل الشاشات وفي الإيصال المطبوع، معاينة الإيصال قبل الطباعة بنفس الرسم النهائي، اتصال بلوتوث دائم مع إعادة اتصال تلقائية، سعر شراء الحبة وتقرير أرباح جديد (المبيعات مقابل التكلفة وصافي الربح وهامشه)."
+          files: release-apk/fatoura-saria-v2.7.apk
           draft: false
           prerelease: false
         env:

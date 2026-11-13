@@ -88,14 +88,27 @@ data class Product(
     val category: String = "",
     val barcode: String = "",
     val pricePerPiece: Double = 0.0,
-    val packageCapacity: Int = 1
+    val packageCapacity: Int = 1,
+    /** سعر شراء الحبة: أساس حساب الربح. صفر يعني أن التكلفة غير معروفة. */
+    val costPerPiece: Double = 0.0
 ) {
     val packagePrice: Double
         get() = pricePerPiece * packageCapacity.coerceAtLeast(1)
 
+    val packageCost: Double
+        get() = costPerPiece * packageCapacity.coerceAtLeast(1)
+
+    /** ربح الحبة الواحدة، أو null إذا لم يُسجَّل سعر التكلفة. */
+    val profitPerPiece: Double?
+        get() = if (costPerPiece > 0.0) pricePerPiece - costPerPiece else null
+
     /** سعر الوحدة المختارة: الحبة = سعر الحبة، الحزمة = سعر الحبة × سعة الحزمة. */
     fun priceFor(unit: SaleUnit): Double =
         if (unit == SaleUnit.PACKAGE) packagePrice else pricePerPiece
+
+    /** تكلفة الوحدة المختارة، تُستخدم عند بيع السلعة. */
+    fun costFor(unit: SaleUnit): Double =
+        if (unit == SaleUnit.PACKAGE) packageCost else costPerPiece
 }
 
 /** بند محفوظ داخل الفاتورة، مع لقطة (snapshot) لسعة الحزمة وقت البيع. */
@@ -107,7 +120,9 @@ data class InvoiceItem(
     val unit: SaleUnit = SaleUnit.PIECE,
     val quantity: Double = 1.0,
     val unitsPerPackage: Int = 1,
-    val unitPrice: Double = 0.0
+    val unitPrice: Double = 0.0,
+    /** لقطة من سعر شراء الحبة وقت البيع، حتى لا تتغير أرباح الفواتير القديمة. */
+    val costPerPiece: Double = 0.0
 ) {
     /** إجمالي عدد الحبات الفعلي لهذا البند */
     val totalPieces: Double
@@ -180,6 +195,18 @@ data class Invoice(
 
     val totalPieces: Double
         get() = items.sumOf { it.totalPieces }
+
+    /** إجمالي تكلفة البضاعة المباعة في هذه الفاتورة (صفر إذا لم تُسجَّل التكلفة). */
+    val totalCost: Double
+        get() = items.sumOf { it.costPerPiece * it.totalPieces }
+
+    /** صافي ربح الفاتورة، أو null إذا لم تُسجَّل تكلفة البضاعة. */
+    val totalProfit: Double?
+        get() = if (totalCost > 0.0) total - totalCost else null
+
+    /** هل تحتفظ الفاتورة بتكلفة معروفة تسمح بحساب الربح؟ */
+    val hasCostData: Boolean
+        get() = items.any { it.costPerPiece > 0.0 }
 
     /**
      * هل هذه فاتورة حاسبة؟ النوع الصريح هو المصدر الأساسي، ومع ذلك تُستنتج

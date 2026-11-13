@@ -189,7 +189,8 @@ fun QuickModeScreen(
                     unit = line.unit,
                     quantity = line.quantity,
                     unitsPerPackage = line.product.packageCapacity.coerceAtLeast(1),
-                    unitPrice = line.unitPrice
+                    unitPrice = line.unitPrice,
+                    costPerPiece = line.product.costPerPiece
                 )
             }
         )

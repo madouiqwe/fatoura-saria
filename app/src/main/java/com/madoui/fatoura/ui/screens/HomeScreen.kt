@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -65,6 +66,7 @@ fun HomeScreen(
     onOpenNewInvoice: () -> Unit,
     onOpenInvoices: () -> Unit,
     onOpenProducts: () -> Unit,
+    onOpenProfits: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
     Scaffold(
@@ -133,6 +135,14 @@ fun HomeScreen(
                 title = "دليل السلع والمنتجات",
                 subtitle = "إضافة وتعديل وحذف وفئات وباركود السلع",
                 onClick = onOpenProducts
+            )
+            NavCard(
+                icon = Icons.Filled.TrendingUp,
+                iconTint = Blue,
+                iconBackground = BlueSoft,
+                title = "تقرير الأرباح",
+                subtitle = "المبيعات مقابل التكلفة وصافي الربح وهامشه",
+                onClick = onOpenProfits
             )
 
             Spacer(Modifier.height(28.dp))

@@ -222,6 +222,15 @@ private fun ProductCard(product: Product, onEdit: () -> Unit, onDelete: () -> Un
                         Spacer(Modifier.width(6.dp))
                     }
                     Text("${Fmt.money(product.pricePerPiece)} / حبة", fontSize = 11.5.sp, color = TextMuted)
+                    product.profitPerPiece?.let { profit ->
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "ربح ${Fmt.money(profit)}",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Green
+                        )
+                    }
                 }
                 Spacer(Modifier.height(5.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -268,10 +277,14 @@ private fun ProductDialog(
     var priceText by remember {
         mutableStateOf(initial?.pricePerPiece?.let { Fmt.amount(it) } ?: "")
     }
+    var costText by remember {
+        mutableStateOf(initial?.costPerPiece?.takeIf { it > 0.0 }?.let { Fmt.amount(it) } ?: "")
+    }
     var capacityText by remember { mutableStateOf(initial?.packageCapacity?.toString() ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
 
     val price = Fmt.parseNumber(priceText) ?: 0.0
+    val cost = Fmt.parseNumber(costText) ?: 0.0
     val capacity = capacityText.toIntOrNull() ?: 0
 
     Dialog(
@@ -360,6 +373,21 @@ private fun ProductDialog(
                     )
                 }
 
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = costText,
+                    onValueChange = { costText = it; error = null },
+                    label = { Text("سعر شراء الحبة (التكلفة)") },
+                    placeholder = { Text("اختياري — لحساب الربح") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Decimal,
+                        imeAction = ImeAction.Next
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
                 if (capacity > 0) {
                     Spacer(Modifier.height(10.dp))
                     Box(
@@ -373,6 +401,23 @@ private fun ProductDialog(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Teal
+                        )
+                    }
+                }
+
+                if (cost > 0.0 && price > 0.0) {
+                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(GreenSoft, RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            "ربح الحبة: ${Fmt.money(price - cost)}  •  تكلفة الحزمة: ${Fmt.money(cost * capacity)}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Green
                         )
                     }
                 }
@@ -402,7 +447,8 @@ private fun ProductDialog(
                                         category = category.trim(),
                                         barcode = barcode.trim(),
                                         pricePerPiece = price,
-                                        packageCapacity = capacity
+                                        packageCapacity = capacity,
+                                        costPerPiece = cost
                                     )
                                 )
                             }

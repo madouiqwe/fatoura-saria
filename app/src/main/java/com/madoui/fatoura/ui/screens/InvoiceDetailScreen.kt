@@ -72,10 +72,12 @@ import com.madoui.fatoura.print.InvoicePdf
 import com.madoui.fatoura.print.InvoicePrinter
 import com.madoui.fatoura.ui.components.ConfirmDialog
 import com.madoui.fatoura.ui.components.FatouraTopBar
+import com.madoui.fatoura.ui.components.ReceiptPreviewDialog
 import com.madoui.fatoura.ui.components.StatusBadge
 import com.madoui.fatoura.ui.theme.AmberSoft
 import com.madoui.fatoura.ui.theme.Background
 import com.madoui.fatoura.ui.theme.Green
+import com.madoui.fatoura.ui.theme.GreenSoft
 import com.madoui.fatoura.ui.theme.LineColor
 import com.madoui.fatoura.ui.theme.Teal
 import com.madoui.fatoura.ui.theme.TealDark
@@ -99,6 +101,7 @@ fun InvoiceDetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showDelete by remember { mutableStateOf(false) }
+    var showPreview by remember { mutableStateOf(false) }
     var isPrinting by remember { mutableStateOf(false) }
 
     if (invoice == null) {
@@ -121,7 +124,10 @@ fun InvoiceDetailScreen(
                 runCatching { InvoicePrinter.printDirectThermal(context, invoice, settings) }.getOrDefault(false)
             }
             isPrinting = false
-            if (printed) Toast.makeText(context, "تم إرسال الفاتورة للطابعة ✓", Toast.LENGTH_SHORT).show()
+            if (printed) {
+                showPreview = false
+                Toast.makeText(context, "تم إرسال الفاتورة للطابعة ✓", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -133,6 +139,21 @@ fun InvoiceDetailScreen(
     }
 
     fun requestPrint() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            connectPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            printDirect()
+        }
+    }
+
+    // المعاينة تظهر أولاً حتى يرى المستخدم شكل الإيصال قبل إرساله للطابعة.
+    fun openPrintPreview() {
+        showPreview = true
+    }
+
+    fun confirmPrint() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -194,7 +215,7 @@ fun InvoiceDetailScreen(
 
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
-                    onClick = { requestPrint() },
+                    onClick = { openPrintPreview() },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
                     enabled = !isPrinting
@@ -269,6 +290,16 @@ fun InvoiceDetailScreen(
                 onDelete(invoice.id)
             },
             onDismiss = { showDelete = false }
+        )
+    }
+
+    if (showPreview) {
+        ReceiptPreviewDialog(
+            invoice = invoice,
+            settings = settings,
+            isPrinting = isPrinting,
+            onDismiss = { showPreview = false },
+            onPrint = { confirmPrint() }
         )
     }
 }
@@ -392,6 +423,32 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                             fontWeight = FontWeight.ExtraBold,
                             color = Color.White
                         )
+                    }
+
+                    invoice.totalProfit?.let { profit ->
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(GreenSoft)
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "صافي الربح (التكلفة ${Fmt.money(invoice.totalCost)})",
+                                modifier = Modifier.weight(1f),
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF1B4D1F)
+                            )
+                            Text(
+                                Fmt.money(profit),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (profit >= 0) Green else Color(0xFFC62828)
+                            )
+                        }
                     }
                 }
 

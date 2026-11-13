@@ -89,6 +89,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.madoui.fatoura.ui.components.EmptyState
 import com.madoui.fatoura.ui.components.FatouraTopBar
+import com.madoui.fatoura.ui.components.ReceiptPreviewDialog
 import com.madoui.fatoura.ui.theme.Amber
 import com.madoui.fatoura.ui.theme.AmberSoft
 import com.madoui.fatoura.ui.theme.Background
@@ -277,6 +278,8 @@ private fun QuickCalculatorTab(
     var entries by remember { mutableStateOf<List<CalcEntry>>(emptyList()) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var isPrinting by remember { mutableStateOf(false) }
+    var showPreview by remember { mutableStateOf(false) }
+    var pendingPrint by remember { mutableStateOf<Invoice?>(null) }
     var editingEntry by remember { mutableStateOf<CalcEntry?>(null) }
 
     // ترقيم محلي متزايد حتى لا يتكرر رقم الفاتورة عند الطباعة والحفظ المتتالي.
@@ -504,24 +507,35 @@ private fun QuickCalculatorTab(
         if (!hasContent || isPrinting) return
         val invoice = buildInvoice()
         val invoiceId = onSaveInvoice(invoice)
+        // تُحفظ الفاتورة ثم تُعرض المعاينة قبل الإرسال للطابعة.
+        pendingPrint = invoice.copy(id = invoiceId)
+        showPreview = true
+    }
+
+    fun printPending() {
+        val invoice = pendingPrint ?: return
+        if (isPrinting) return
         isPrinting = true
         scope.launch {
             val printed = withContext(Dispatchers.IO) {
-                runCatching {
-                    InvoicePrinter.printDirectThermal(context, invoice.copy(id = invoiceId), settings)
-                }.getOrDefault(false)
+                runCatching { InvoicePrinter.printDirectThermal(context, invoice, settings) }
+                    .getOrDefault(false)
             }
             isPrinting = false
             if (printed) {
-                Toast.makeText(context, "تم الحفظ والطباعة على XP-P801 ✓", Toast.LENGTH_SHORT).show()
+                showPreview = false
+                pendingPrint = null
                 clearAll()
+                Toast.makeText(context, "تم الحفظ والطباعة على XP-P801 ✓", Toast.LENGTH_SHORT).show()
             } else {
+                showPreview = false
+                pendingPrint = null
                 Toast.makeText(
                     context,
                     "حُفظت الفاتورة ${invoice.number}، وتُعيد الطباعة من شاشة الفاتورة.",
                     Toast.LENGTH_LONG
                 ).show()
-                onSaved(invoiceId)
+                onSaved(invoice.id)
             }
         }
     }
@@ -702,6 +716,16 @@ private fun QuickCalculatorTab(
                 }
                 editingEntry = null
             }
+        )
+    }
+
+    pendingPrint?.let { invoice ->
+        ReceiptPreviewDialog(
+            invoice = invoice,
+            settings = settings,
+            isPrinting = isPrinting,
+            onDismiss = { showPreview = false; pendingPrint = null },
+            onPrint = { printPending() }
         )
     }
 }

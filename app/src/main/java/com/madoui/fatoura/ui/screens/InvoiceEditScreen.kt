@@ -99,7 +99,8 @@ private data class DraftItem(
     val capacity: Int,
     val piecePrice: Double,
     val quantity: Double,
-    val unitPrice: Double
+    val unitPrice: Double,
+    val costPerPiece: Double = 0.0
 ) {
     val lineTotal: Double get() = quantity * unitPrice
     val totalPieces: Double get() = quantity * if (unit == SaleUnit.PACKAGE) capacity.coerceAtLeast(1) else 1
@@ -143,7 +144,8 @@ fun InvoiceEditScreen(
                             item.unitPrice / item.unitsPerPackage.coerceAtLeast(1)
                         } else item.unitPrice,
                         quantity = item.quantity,
-                        unitPrice = item.unitPrice
+                        unitPrice = item.unitPrice,
+                        costPerPiece = item.costPerPiece
                     )
                 )
             }
@@ -197,7 +199,8 @@ fun InvoiceEditScreen(
                     unit = draft.unit,
                     quantity = draft.quantity,
                     unitsPerPackage = draft.capacity,
-                    unitPrice = draft.unitPrice
+                    unitPrice = draft.unitPrice,
+                    costPerPiece = draft.costPerPiece
                 )
             },
             discount = discount,
@@ -226,7 +229,8 @@ fun InvoiceEditScreen(
                 capacity = product.packageCapacity.coerceAtLeast(1),
                 piecePrice = product.pricePerPiece,
                 quantity = 1.0,
-                unitPrice = unitPrice
+                unitPrice = unitPrice,
+                costPerPiece = product.costPerPiece
             )
         )
         showPicker = false

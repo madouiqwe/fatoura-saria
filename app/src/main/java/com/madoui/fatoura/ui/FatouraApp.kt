@@ -13,6 +13,7 @@ import com.madoui.fatoura.ui.screens.InvoiceDetailScreen
 import com.madoui.fatoura.ui.screens.InvoiceEditScreen
 import com.madoui.fatoura.ui.screens.InvoiceListScreen
 import com.madoui.fatoura.ui.screens.ProductsScreen
+import com.madoui.fatoura.ui.screens.ProfitReportScreen
 import com.madoui.fatoura.ui.screens.QuickCalculatorScreen
 import com.madoui.fatoura.ui.screens.QuickModeScreen
 
@@ -49,6 +50,7 @@ fun FatouraApp(viewModel: FatouraViewModel) {
             onOpenNewInvoice = { push("edit") },
             onOpenInvoices = { push("invoices") },
             onOpenProducts = { push("products") },
+            onOpenProfits = { push("profits") },
             onOpenSettings = { showSettings = true }
         )
 
@@ -66,6 +68,11 @@ fun FatouraApp(viewModel: FatouraViewModel) {
             onBack = { pop() },
             onSaveInvoice = viewModel::saveInvoice,
             onSaved = { id -> replaceTop("detail/$id") }
+        )
+
+        route == "profits" -> ProfitReportScreen(
+            invoices = data.invoices,
+            onBack = { pop() }
         )
 
         route == "products" -> ProductsScreen(
@@ -119,6 +126,7 @@ fun FatouraApp(viewModel: FatouraViewModel) {
             onOpenNewInvoice = { push("edit") },
             onOpenInvoices = { push("invoices") },
             onOpenProducts = { push("products") },
+            onOpenProfits = { push("profits") },
             onOpenSettings = { showSettings = true }
         )
     }

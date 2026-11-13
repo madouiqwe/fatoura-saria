@@ -66,6 +66,11 @@ object InvoicePrinter {
 
     private val clockFormat = SimpleDateFormat("HH:mm", Locale.US)
 
+    private var facesLoaded = false
+
+    /** اتصال الطابعة المفتوح بين الفواتير لتسريع الطباعة المتتالية. */
+    private var cachedSocket: BluetoothSocket? = null
+
     fun print(context: Context, file: File, jobName: String) {
         val printManager = context.getSystemService(Context.PRINT_SERVICE) as PrintManager
         val adapter = object : PrintDocumentAdapter() {
@@ -123,22 +128,59 @@ object InvoicePrinter {
             return false
         }
 
+        val device = findPrinter(context) ?: return false
+        val payload = buildThermalText(context, invoice, company)
+
+        // المحاولة الأولى تستعمل الاتصال المفتوح، والثانية تفتح اتصالاً جديداً.
+        for (attempt in 1..2) {
+            val reused = attempt == 1
+            val socket = obtainSocket(context, device, reuseExisting = reused)
+                ?: if (attempt == 1) null else null
+            if (socket == null) {
+                if (attempt == 2) {
+                    showToast(context, "تعذّر الاتصال بالطابعة.")
+                    return false
+                }
+                continue
+            }
+            val sent = try {
+                writePayload(socket, payload)
+                true
+            } catch (exception: Exception) {
+                runCatching { socket.close() }
+                cachedSocket = null
+                if (attempt == 2) {
+                    showToast(context, "تعذرت الطباعة: ${exception.localizedMessage ?: "خطأ اتصال"}")
+                    return false
+                }
+                false
+            }
+            if (sent) {
+                showToast(context, "تم إرسال الفاتورة إلى ${runCatching { device.name }.getOrNull() ?: "XP-P801"}")
+                return true
+            }
+        }
+        return false
+    }
+
+    /** يبحث عن الطابعة المقترنة ويعيدها أو null مع رسالة توضيحية. */
+    private fun findPrinter(context: Context): BluetoothDevice? {
         val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
             ?: BluetoothAdapter.getDefaultAdapter()
         if (adapter == null) {
             showToast(context, "لا توجد بطاقة بلوتوث في هذا الجهاز.")
-            return false
+            return null
         }
         if (!adapter.isEnabled) {
             showToast(context, "شغّل البلوتوث ثم أعد المحاولة.")
-            return false
+            return null
         }
 
         val paired = try {
             adapter.bondedDevices?.toList().orEmpty()
         } catch (_: SecurityException) {
             showToast(context, "لا توجد صلاحية لقراءة أجهزة البلوتوث المقترنة.")
-            return false
+            return null
         }
 
         val device = paired.firstOrNull { candidate ->
@@ -153,42 +195,65 @@ object InvoicePrinter {
                 "اختر طابعة الإيصالات من إعدادات البلوتوث؛ يوجد ${paired.size} أجهزة مقترنة."
             }
             showToast(context, hint)
-            return false
+            return null
         }
+        return device
+    }
 
-        var socket: BluetoothSocket? = null
+    /**
+     * يعيد اتصالاً مفتوحاً للطابعة، أو ينشئ واحداً جديداً عند الحاجة.
+     * إبقاء الاتصال مفتوحاً يجعل طباعة الفواتير المتتالية فورية.
+     */
+    @Synchronized
+    private fun obtainSocket(
+        context: Context,
+        device: BluetoothDevice,
+        reuseExisting: Boolean
+    ): BluetoothSocket? {
+        val existing = cachedSocket
+        if (reuseExisting && existing != null && existing.isConnected) {
+            return existing
+        }
+        runCatching { existing?.close() }
+        cachedSocket = null
+
+        // Discovery slows RFCOMM negotiation down significantly on Android.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
+        ) {
+            val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
+            runCatching { adapter?.cancelDiscovery() }
+        }
         return try {
-            // Discovery slows RFCOMM negotiation down significantly on Android.
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
-            ) {
-                runCatching { adapter.cancelDiscovery() }
+            openSocket(device).also { cachedSocket = it }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** يكتب البيانات على دفعات صغيرة وينتظر تفريغ مخزن الطابعة. */
+    private fun writePayload(socket: BluetoothSocket, payload: ByteArray) {
+        socket.outputStream.use { output ->
+            val chunkSize = 2048
+            var offset = 0
+            while (offset < payload.size) {
+                val length = minOf(chunkSize, payload.size - offset)
+                output.write(payload, offset, length)
+                output.flush()
+                offset += length
+                Thread.sleep(10)
             }
-            val payload = buildThermalText(invoice, company)
-            socket = openSocket(device)
-            socket.outputStream.use { output ->
-                // نكتب على دفعات صغيرة: الطابعات الحرارية الرخيصة ذات المخزن الصغير
-                // تُسقط البيانات إذا أُرسلت في دفعة واحدة كبيرة.
-                val chunkSize = 2048
-                var offset = 0
-                while (offset < payload.size) {
-                    val length = minOf(chunkSize, payload.size - offset)
-                    output.write(payload, offset, length)
-                    output.flush()
-                    offset += length
-                    Thread.sleep(10)
-                }
-                // انتظر حتى تفرغ الطابعة مخزنها قبل إغلاق الاتصال حتى لا يُقص الإيصال ناقصاً.
-                val drainMs = (payload.size / 1024 * 20).coerceIn(700, 3500)
-                Thread.sleep(drainMs.toLong())
-            }
-            showToast(context, "تم إرسال الفاتورة إلى ${runCatching { device.name }.getOrNull() ?: "XP-P801"}")
-            true
-        } catch (exception: Exception) {
-            showToast(context, "تعذرت الطباعة: ${exception.localizedMessage ?: "خطأ اتصال"}")
-            false
-        } finally {
-            runCatching { socket?.close() }
+            // انتظر حتى تفرغ الطابعة مخزنها قبل إغلاق الاتصال حتى لا يُقص الإيصال ناقصاً.
+            val drainMs = (payload.size / 1024 * 20).coerceIn(700, 3500)
+            Thread.sleep(drainMs.toLong())
+        }
+    }
+
+    /** يغلق اتصال الطابعة المحفوظ (عند الخروج أو عند تغيير الجهاز). */
+    fun disconnectPrinter() {
+        synchronized(this) {
+            runCatching { cachedSocket?.close() }
+            cachedSocket = null
         }
     }
 
@@ -228,11 +293,30 @@ object InvoicePrinter {
             textSize = size
             isSubpixelText = true
             typeface = when {
-                bold -> Typeface.create("sans-serif", Typeface.BOLD)
-                medium -> Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                else -> Typeface.create("sans-serif", Typeface.NORMAL)
+                bold -> boldFace
+                medium -> mediumFace
+                else -> regularFace
             }
         }
+
+    /** خطوط التطبيق العربية: تُحمَّل من الأصول مرة واحدة وتُستخدم في كل الإيصالات. */
+    private var regularFace: Typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+    private var mediumFace: Typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+    private var boldFace: Typeface = Typeface.create("sans-serif", Typeface.BOLD)
+
+    private fun loadFaces(context: Context) {
+        if (facesLoaded) return
+        facesLoaded = true
+        regularFace = runCatching {
+            Typeface.createFromAsset(context.assets, "fonts/ibm_plex_sans_arabic_regular.ttf")
+        }.getOrElse { regularFace }
+        mediumFace = runCatching {
+            Typeface.createFromAsset(context.assets, "fonts/ibm_plex_sans_arabic_medium.ttf")
+        }.getOrElse { mediumFace }
+        boldFace = runCatching {
+            Typeface.createFromAsset(context.assets, "fonts/ibm_plex_sans_arabic_bold.ttf")
+        }.getOrElse { boldFace }
+    }
 
     private fun buildLayout(
         text: String,
@@ -375,7 +459,19 @@ object InvoicePrinter {
     }
 
     /** يبني أمر ESC/POS كامل بصورة نقطية عالية الدقة (يدعم العربية بالكامل). */
-    fun buildThermalText(invoice: Invoice, company: CompanySettings): ByteArray {
+    fun buildThermalText(context: Context, invoice: Invoice, company: CompanySettings): ByteArray {
+        loadFaces(context)
+        val blocks = buildReceiptBlocks(invoice, company)
+        val bitmap = renderReceipt(blocks)
+        return try {
+            encodeRaster(bitmap)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    /** كتل الإيصال: نفس المحتوى للمعاينة على الشاشة وللطباعة الفعلية. */
+    private fun buildReceiptBlocks(invoice: Invoice, company: CompanySettings): List<ReceiptBlock> {
         val blocks = mutableListOf<ReceiptBlock>()
         val calculator = invoice.isCalculator
 
@@ -452,12 +548,7 @@ object InvoicePrinter {
         )
         blocks += centeredBlock("فاتورة سريعة • ${invoice.number}", size = 19f, gap = 5)
 
-        val bitmap = renderReceipt(blocks)
-        return try {
-            encodeRaster(bitmap)
-        } finally {
-            bitmap.recycle()
-        }
+        return blocks
     }
 
     private fun renderReceipt(blocks: List<ReceiptBlock>): Bitmap {
@@ -466,6 +557,39 @@ object InvoicePrinter {
         val bitmap = Bitmap.createBitmap(THERMAL_WIDTH_DOTS, height.coerceAtLeast(64), Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
+        var top = headerPadding
+        blocks.forEach { block ->
+            canvas.save()
+            canvas.translate(SIDE_PADDING.toFloat(), 0f)
+            block.draw(canvas, top)
+            canvas.restore()
+            top += block.height
+        }
+        return bitmap
+    }
+
+    /**
+     * معاينة الإيصال: نفس كتل الطباعة لكن بدقة مضاعفة وبعرض الورق نفسه،
+     * فيرى المستخدم ما سيُطبع حرفياً قبل إرسال الأمر للطابعة.
+     */
+    fun renderReceiptPreview(
+        context: Context,
+        invoice: Invoice,
+        company: CompanySettings,
+        scale: Int = 2
+    ): Bitmap {
+        loadFaces(context)
+        val blocks = buildReceiptBlocks(invoice, company)
+        val headerPadding = 10
+        val height = blocks.sumOf { it.height } + headerPadding * 2
+        val bitmap = Bitmap.createBitmap(
+            THERMAL_WIDTH_DOTS * scale,
+            (height * scale).coerceAtLeast(64),
+            Bitmap.Config.ARGB_8888
+        )
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+        canvas.scale(scale.toFloat(), scale.toFloat())
         var top = headerPadding
         blocks.forEach { block ->
             canvas.save()
