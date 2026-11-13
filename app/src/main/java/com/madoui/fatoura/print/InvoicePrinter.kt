@@ -34,6 +34,7 @@ import com.madoui.fatoura.data.CompanySettings
 import com.madoui.fatoura.data.DIRECT_AMOUNT_LABEL
 import com.madoui.fatoura.data.Invoice
 import com.madoui.fatoura.data.SaleUnit
+import com.madoui.fatoura.data.calcLineText
 import com.madoui.fatoura.util.Fmt
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -393,17 +394,17 @@ object InvoicePrinter {
         blocks += rowBlock("التاريخ", Fmt.date(invoice.dateMillis), size = 24f, gap = 4)
         blocks += rowBlock("الوقت", clockFormat.format(Date(invoice.dateMillis)), size = 24f, gap = 5)
         blocks += rowBlock("العميل", invoice.customerName.ifBlank { "عميل نقدي" }, size = 26f, gap = 4)
+        if (invoice.customerPhone.isNotBlank()) {
+            blocks += rowBlock("الهاتف", invoice.customerPhone, size = 24f, gap = 4)
+        }
         blocks += rowBlock("الدفع", invoice.paymentMethod.label, size = 24f, gap = 7)
 
         blocks += sectionBar(if (calculator) "إيصال حساب فوري" else "فاتورة مبيعات")
 
         if (calculator) {
-            invoice.items.forEachIndexed { index, item ->
-                val label = when (item.name.trim()) {
-                    "مبلغ إجمالي سريع", DIRECT_AMOUNT_LABEL, "" -> "مبلغ مباشر"
-                    else -> item.name
-                }
-                blocks += rowBlock("${index + 1}. $label", Fmt.money(item.lineTotal), size = 30f, bold = true, gap = 3)
+            invoice.items.forEach { item ->
+                // العملية تُطبع كاملة بنتيجتها: 250 × 10 = 2500
+                blocks += textBlock(calcLineText(item), size = 30f, bold = true, gap = 3)
                 if (item.quantity > 1.0) {
                     blocks += textBlock(
                         "${Fmt.qty(item.quantity)} حبة × ${Fmt.amount(item.unitPrice)} د.ج",
@@ -415,9 +416,9 @@ object InvoicePrinter {
         } else {
             blocks += rowBlock("البيان", "الإجمالي", size = 22f, bold = true, leader = false, gap = 5)
             blocks += separatorBlock(gap = 7, thickness = 2f)
-            invoice.items.forEachIndexed { index, item ->
+            invoice.items.forEach { item ->
                 val capacity = item.unitsPerPackage.coerceAtLeast(1)
-                blocks += textBlock("${index + 1}. ${item.name.ifBlank { "منتج" }}", size = 28f, bold = true, gap = 2)
+                blocks += textBlock(item.name.ifBlank { "منتج" }, size = 28f, bold = true, gap = 2)
                 val quantityText = if (item.unit == SaleUnit.PACKAGE) {
                     "${Fmt.qty(item.quantity)} حزمة × $capacity = ${Fmt.qty(item.totalPieces)} حبة"
                 } else {

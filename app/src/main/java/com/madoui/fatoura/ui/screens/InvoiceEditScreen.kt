@@ -177,6 +177,10 @@ fun InvoiceEditScreen(
             error = "أضف صنفاً واحداً على الأقل قبل الحفظ"
             return
         }
+        if (payment == PaymentMethod.CREDIT && customerPhone.isBlank()) {
+            error = "أدخل رقم هاتف العميل في الفاتورة الآجلة"
+            return
+        }
         val invoice = Invoice(
             id = existing?.id ?: 0L,
             number = existing?.number ?: data.nextInvoiceNumber.toString(),
@@ -287,9 +291,21 @@ fun InvoiceEditScreen(
                     OutlinedTextField(
                         value = customerPhone,
                         onValueChange = { customerPhone = it },
-                        label = { Text("هاتف العميل (اختياري)") },
+                        label = { Text("رقم هاتف العميل") },
+                        placeholder = { Text("05xxxxxxxx") },
+                        supportingText = {
+                            Text(
+                                if (payment == PaymentMethod.CREDIT) {
+                                    "مطلوب في الفاتورة الآجلة لتذكّر العميل"
+                                } else {
+                                    "يظهر على الفاتورة والإيصال المطبوع"
+                                },
+                                fontSize = 11.sp
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                        isError = payment == PaymentMethod.CREDIT && customerPhone.isBlank(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                         shape = RoundedCornerShape(12.dp)
                     )

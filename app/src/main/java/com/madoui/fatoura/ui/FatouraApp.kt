@@ -13,6 +13,7 @@ import com.madoui.fatoura.ui.screens.InvoiceDetailScreen
 import com.madoui.fatoura.ui.screens.InvoiceEditScreen
 import com.madoui.fatoura.ui.screens.InvoiceListScreen
 import com.madoui.fatoura.ui.screens.ProductsScreen
+import com.madoui.fatoura.ui.screens.QuickCalculatorScreen
 import com.madoui.fatoura.ui.screens.QuickModeScreen
 
 @Composable
@@ -44,6 +45,7 @@ fun FatouraApp(viewModel: FatouraViewModel) {
         route == "home" -> HomeScreen(
             data = data,
             onOpenQuick = { push("quick") },
+            onOpenCalculator = { push("calculator") },
             onOpenNewInvoice = { push("edit") },
             onOpenInvoices = { push("invoices") },
             onOpenProducts = { push("products") },
@@ -52,8 +54,15 @@ fun FatouraApp(viewModel: FatouraViewModel) {
 
         route == "quick" -> QuickModeScreen(
             products = data.products,
-            settings = data.settings,
             nextInvoiceNumber = data.nextInvoiceNumber.toString(),
+            onBack = { pop() },
+            onSaveInvoice = viewModel::saveInvoice,
+            onSaved = { id -> replaceTop("detail/$id") }
+        )
+
+        route == "calculator" -> QuickCalculatorScreen(
+            nextInvoiceNumber = data.nextInvoiceNumber.toString(),
+            settings = data.settings,
             onBack = { pop() },
             onSaveInvoice = viewModel::saveInvoice,
             onSaved = { id -> replaceTop("detail/$id") }
@@ -106,6 +115,7 @@ fun FatouraApp(viewModel: FatouraViewModel) {
         else -> HomeScreen(
             data = data,
             onOpenQuick = { push("quick") },
+            onOpenCalculator = { push("calculator") },
             onOpenNewInvoice = { push("edit") },
             onOpenInvoices = { push("invoices") },
             onOpenProducts = { push("products") },

@@ -67,6 +67,7 @@ import com.madoui.fatoura.data.Invoice
 import com.madoui.fatoura.data.InvoiceItem
 import com.madoui.fatoura.data.InvoiceStatus
 import com.madoui.fatoura.data.SaleUnit
+import com.madoui.fatoura.data.calcLineText
 import com.madoui.fatoura.print.InvoicePdf
 import com.madoui.fatoura.print.InvoicePrinter
 import com.madoui.fatoura.ui.components.ConfirmDialog
@@ -328,8 +329,7 @@ private fun InvoicePaper(invoice: Invoice, settings: CompanySettings) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (calculatorInvoice) {
-                        InvoiceHeaderCell("العملية الحسابية", 2.4f, TextAlign.Start)
-                        InvoiceHeaderCell("المبلغ", 1f)
+                        InvoiceHeaderCell("العملية الحسابية (السعر × الكمية = الإجمالي)", 1f, TextAlign.Start)
                     } else {
                         InvoiceHeaderCell("الصنف / المنتج", 2.2f, TextAlign.Start)
                         InvoiceHeaderCell("الكمية", 1.25f)
@@ -608,15 +608,12 @@ private fun InvoiceItemRow(item: InvoiceItem, index: Int, calculatorInvoice: Boo
                 .padding(vertical = 10.dp, horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val displayName = when (item.name.trim()) {
-                "مبلغ إجمالي سريع", com.madoui.fatoura.data.DIRECT_AMOUNT_LABEL, "" -> "مبلغ مباشر"
-                else -> item.name
-            }
-            Column(Modifier.weight(2.4f).padding(horizontal = 2.dp)) {
+            val displayName = calcLineText(item)
+            Column(Modifier.weight(1f).padding(horizontal = 2.dp)) {
                 Text(
                     displayName,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
                     color = TextPrimary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -629,14 +626,6 @@ private fun InvoiceItemRow(item: InvoiceItem, index: Int, calculatorInvoice: Boo
                     )
                 }
             }
-            Text(
-                Fmt.money(item.lineTotal),
-                Modifier.weight(1f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = TealDark,
-                textAlign = TextAlign.Center
-            )
         }
     } else {
         val isPackage = item.unit == SaleUnit.PACKAGE

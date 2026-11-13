@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Inventory2
@@ -60,6 +61,7 @@ import com.madoui.fatoura.util.Fmt
 fun HomeScreen(
     data: AppData,
     onOpenQuick: () -> Unit,
+    onOpenCalculator: () -> Unit,
     onOpenNewInvoice: () -> Unit,
     onOpenInvoices: () -> Unit,
     onOpenProducts: () -> Unit,
@@ -99,6 +101,14 @@ fun HomeScreen(
                 title = "الوضع السريع",
                 subtitle = "اختر السلع، احسب الإجمالي، وأصدر فاتورة فوراً",
                 onClick = onOpenQuick
+            )
+            NavCard(
+                icon = Icons.Filled.Calculate,
+                iconTint = Teal,
+                iconBackground = TealSoft,
+                title = "الحاسبة السريعة",
+                subtitle = "حاسبة مستقلة: اكتب العملية 250 × 10 واحصل على فاتورة جاهزة",
+                onClick = onOpenCalculator
             )
             NavCard(
                 icon = Icons.Filled.ReceiptLong,

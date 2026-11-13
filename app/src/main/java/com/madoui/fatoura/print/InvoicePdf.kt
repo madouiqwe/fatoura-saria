@@ -17,6 +17,7 @@ import com.madoui.fatoura.data.Invoice
 import com.madoui.fatoura.data.InvoiceItem
 import com.madoui.fatoura.data.InvoiceStatus
 import com.madoui.fatoura.data.SaleUnit
+import com.madoui.fatoura.data.calcLineText
 import com.madoui.fatoura.util.Fmt
 import java.io.File
 import java.io.FileOutputStream
@@ -227,8 +228,7 @@ object InvoicePdf {
         val paint = textPaint(8.5f, Color.WHITE, bold = true).apply { textAlign = Paint.Align.CENTER }
         val baseline = top + 18f
         if (isCalculator) {
-            canvas.drawText("العملية الحسابية", right - 135f, baseline, paint)
-            canvas.drawText("المبلغ (د.ج)", left + 55f, baseline, paint)
+            canvas.drawText("العملية الحسابية (السعر × الكمية = الإجمالي)", right - 150f, baseline, paint)
         } else {
             canvas.drawText("الصنف / المنتج", right - colName / 2f, baseline, paint)
             canvas.drawText("الكمية (حبة)", right - colName - colQty / 2f, baseline, paint)
@@ -245,15 +245,11 @@ object InvoicePdf {
         val bottom = top + height
         if (index % 2 == 1) canvas.drawRect(RectF(left, top, right, bottom), Paint().apply { color = COLOR_ROW_ALT })
         val namePaint = textPaint(9f, COLOR_TEXT, bold = true).apply { textAlign = Paint.Align.RIGHT }
-        val amountPaint = textPaint(9.5f, COLOR_TEAL_DARK, bold = true).apply { textAlign = Paint.Align.CENTER }
         val subPaint = textPaint(7.5f, COLOR_MUTED).apply { textAlign = Paint.Align.RIGHT }
-        val lineLabel = when (item.name.trim()) {
-            "مبلغ إجمالي سريع", DIRECT_AMOUNT_LABEL, "" -> "مبلغ مباشر"
-            else -> item.name
-        }
         val hasBreakdown = item.quantity > 1.0
         val amountY = if (hasBreakdown) top + 15f else top + height / 2f + 3f
-        canvas.drawText("${index + 1}. ${ellipsize(lineLabel, namePaint, 300f)}", right - 12f, amountY, namePaint)
+        val lineLabel = calcLineText(item)
+        canvas.drawText(ellipsize(lineLabel, namePaint, 480f), right - 12f, amountY, namePaint)
         if (hasBreakdown) {
             canvas.drawText(
                 "${Fmt.qty(item.quantity)} حبة × ${Fmt.amount(item.unitPrice)} د.ج",
@@ -262,7 +258,6 @@ object InvoicePdf {
                 subPaint
             )
         }
-        canvas.drawText(Fmt.money(item.lineTotal), left + 55f, amountY, amountPaint)
         canvas.drawLine(left, bottom, right, bottom, Paint().apply { color = COLOR_LINE; strokeWidth = 0.8f })
         return bottom
     }
@@ -281,7 +276,7 @@ object InvoicePdf {
         val nameRight = right - 8f
         val capacity = item.unitsPerPackage.coerceAtLeast(1)
         val isPackage = item.unit == SaleUnit.PACKAGE
-        canvas.drawText("${index + 1}. ${ellipsize(item.name, namePaint, colName - 24f)}", nameRight, top + 13f, namePaint)
+        canvas.drawText(ellipsize(item.name, namePaint, colName - 24f), nameRight, top + 13f, namePaint)
         if (isPackage) {
             canvas.drawText("${Fmt.qty(item.quantity)} حزمة × $capacity حبة", nameRight, top + 25f, subPaint)
         }

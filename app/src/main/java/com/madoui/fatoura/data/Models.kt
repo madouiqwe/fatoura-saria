@@ -1,6 +1,7 @@
 package com.madoui.fatoura.data
 
 import kotlinx.serialization.Serializable
+import com.madoui.fatoura.util.Fmt
 
 /** وحدة البيع داخل الفاتورة: حبة مفردة أو حزمة كاملة. */
 @Serializable
@@ -134,6 +135,26 @@ data class InvoiceItem(
 
     val quantityLabel: String
         get() = piecesDisplay
+}
+
+/**
+ * نص السطر في فواتير الحاسبة: العملية كاملة بنتيجتها «250 × 10 = 2500»،
+ * والمبالغ المباشرة تُعرض بمبلغها، والأسطر الرقمية تُعرض كمبلغ فقط.
+ */
+fun calcLineText(item: InvoiceItem): String {
+    val label = when (item.name.trim()) {
+        "", DIRECT_AMOUNT_LABEL, LEGACY_DIRECT_AMOUNT_LABEL -> DIRECT_AMOUNT_LABEL
+        else -> item.name.trim()
+    }
+    if (item.quantity > 1.0) {
+        return "${Fmt.amount(item.unitPrice)} × ${Fmt.qty(item.quantity)} = ${Fmt.amount(item.lineTotal)}"
+    }
+    val digitsOnly = label.isNotEmpty() && label.all { it.isDigit() || it == '.' }
+    return when {
+        digitsOnly -> Fmt.money(item.lineTotal)
+        label == DIRECT_AMOUNT_LABEL -> "${DIRECT_AMOUNT_LABEL} = ${Fmt.amount(item.lineTotal)}"
+        else -> "$label = ${Fmt.amount(item.lineTotal)}"
+    }
 }
 
 @Serializable
